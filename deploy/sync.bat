@@ -21,12 +21,11 @@ if not exist "config.bat" (
 )
 call config.bat
 
-REM Fallback: if BOT_TOKEN is not set in config.bat, try reading it from ..\.env
-if "%BOT_TOKEN%"=="" (
-    if exist "%DEPLOY_DIR%\..\.env" (
-        for /f "usebackq tokens=1,* delims==" %%a in ("%DEPLOY_DIR%\..\.env") do (
-            if /i "%%a"=="BOT_TOKEN" set BOT_TOKEN=%%b
-        )
+REM Fallback: if BOT_TOKEN or BOT_PASSPHRASE is not set in config.bat, try reading from ..\.env
+if exist "%DEPLOY_DIR%\..\.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in ("%DEPLOY_DIR%\..\.env") do (
+        if "%BOT_TOKEN%"=="" if /i "%%a"=="BOT_TOKEN" set BOT_TOKEN=%%b
+        if "%BOT_PASSPHRASE%"=="" if /i "%%a"=="BOT_PASSPHRASE" set BOT_PASSPHRASE=%%b
     )
 )
 
@@ -128,7 +127,7 @@ if not exist "%ENV_TMP%" (
     exit /b 1
 )
 
-call :ssh_pipe "%ENV_TMP%" "bash -s -- '%REMOTE_DIR%' '%BOT_TOKEN%' '%DEFAULT_CURRENCY%' '%TIMEZONE%' '%POSTGRES_USER%' '%POSTGRES_DB%'"
+call :ssh_pipe "%ENV_TMP%" "bash -s -- '%REMOTE_DIR%' '%BOT_TOKEN%' '%DEFAULT_CURRENCY%' '%TIMEZONE%' '%POSTGRES_USER%' '%POSTGRES_DB%' '%BOT_PASSPHRASE%'"
 set ENV_RC=%ERRORLEVEL%
 del "%ENV_TMP%" 2>nul
 if not %ENV_RC% equ 0 (

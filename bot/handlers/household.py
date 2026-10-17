@@ -192,3 +192,33 @@ async def cmd_currency(
         parse_mode="HTML",
     )
 
+
+@router.message(Command("auth", "login", "unlock", "pin", "passphrase"))
+async def cmd_already_authenticated(message: Message) -> None:
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await message.answer(
+        "✅ <b>Already Unlocked</b>\n"
+        "Your account is already authorized to use this bot. "
+        "Use /logout if you wish to lock your session.",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("logout", "lock"))
+async def cmd_logout(
+    message: Message,
+    repo: ExpenseRepo,
+    member: Member,
+) -> None:
+    await repo.revoke_user_authorization(member.telegram_user_id)
+    await message.answer(
+        "🔒 <b>Session Locked</b>\n"
+        "You have been logged out. Enter the passphrase or send "
+        "<code>/auth &lt;passphrase&gt;</code> to unlock again.",
+        parse_mode="HTML",
+    )
+
+

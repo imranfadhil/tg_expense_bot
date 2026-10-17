@@ -41,6 +41,14 @@ async def main() -> None:
     logger.info("Initializing PostgreSQL schema...")
     await init_db()
 
+    if settings.passphrase_hash:
+        logger.info("Passphrase access control is ENABLED.")
+    else:
+        logger.warning(
+            "BOT_PASSPHRASE is not set — bot is open to any Telegram user. "
+            "Set BOT_PASSPHRASE in .env to require a passphrase/PIN login."
+        )
+
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
 

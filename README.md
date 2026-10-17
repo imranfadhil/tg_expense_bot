@@ -44,7 +44,10 @@ A Telegram bot built with **aiogram 3.x**, **SQLAlchemy 2.0 (asyncpg)**, and **P
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and set your `BOT_TOKEN` from [@BotFather](https://t.me/BotFather) (and optionally `DEFAULT_CURRENCY` and `TIMEZONE`).
+   Edit `.env` and set:
+   - `BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
+   - `BOT_PASSPHRASE` (secret PIN/passphrase required for new users to unlock the bot via chat or `/auth <passphrase>`)
+   - Optionally `DEFAULT_CURRENCY` and `TIMEZONE`.
    > 💡 **Tip for Group Chats**: If you plan to use the bot inside a Telegram group chat and want it to read plain text expenses without `/add`, open [@BotFather](https://t.me/BotFather) → `/mybots` → Select your bot → **Bot Settings** → **Group Privacy** → **Turn off**.
 
 2. **Start PostgreSQL + Bot with Docker Compose:**

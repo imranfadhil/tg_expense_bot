@@ -11,7 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from bot.config import settings
-from bot.db.models import DEFAULT_CATEGORIES, Category, Expense, Household, Member
+from bot.db.models import (
+    DEFAULT_CATEGORIES,
+    AuthorizedUser,
+    Category,
+    Expense,
+    Household,
+    Member,
+    utcnow,
+)
 
 
 def _generate_invite_code() -> str:
@@ -23,6 +31,49 @@ def _generate_invite_code() -> str:
 class ExpenseRepo:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def is_user_authorized(self, telegram_user_id: int, expected_hash: str) -> bool:
+        stmt = select(AuthorizedUser).where(
+            AuthorizedUser.telegram_user_id == telegram_user_id
+        )
+        result = await self.session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is None:
+            return False
+        return secrets.compare_digest(record.passphrase_hash, expected_hash)
+
+    async def authorize_user(
+        self, telegram_user_id: int, passphrase_hash: str
+    ) -> AuthorizedUser:
+        stmt = select(AuthorizedUser).where(
+            AuthorizedUser.telegram_user_id == telegram_user_id
+        )
+        result = await self.session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is None:
+            record = AuthorizedUser(
+                telegram_user_id=telegram_user_id,
+                passphrase_hash=passphrase_hash,
+                authorized_at=utcnow(),
+            )
+            self.session.add(record)
+        else:
+            record.passphrase_hash = passphrase_hash
+            record.authorized_at = utcnow()
+        await self.session.commit()
+        return record
+
+    async def revoke_user_authorization(self, telegram_user_id: int) -> bool:
+        stmt = select(AuthorizedUser).where(
+            AuthorizedUser.telegram_user_id == telegram_user_id
+        )
+        result = await self.session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is None:
+            return False
+        await self.session.delete(record)
+        await self.session.commit()
+        return True
 
     async def get_member_by_telegram_id(self, telegram_user_id: int) -> Optional[Member]:
         stmt = (

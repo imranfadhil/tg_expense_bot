@@ -28,6 +28,10 @@ REM Create a NEW bot with @BotFather -> /newbot and paste its token here
 REM (or leave blank here to read BOT_TOKEN from the root .env file)
 set BOT_TOKEN=
 
+REM Secret Passphrase / PIN required for users to unlock the bot
+REM (or leave blank here to read BOT_PASSPHRASE from the root .env file)
+set BOT_PASSPHRASE=
+
 REM Default currency symbol for new households (e.g. $, RM, S$)
 set DEFAULT_CURRENCY=RM
 

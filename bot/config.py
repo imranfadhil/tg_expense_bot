@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -9,6 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     bot_token: str = "000000000:TEST_TOKEN"
+    bot_passphrase: Optional[str] = None
+
     postgres_user: str = "expense_user"
     postgres_password: str = "expense_secret_password"
     postgres_db: str = "family_expenses"
@@ -24,6 +27,12 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def passphrase_hash(self) -> Optional[str]:
+        if not self.bot_passphrase or not self.bot_passphrase.strip():
+            return None
+        return hashlib.sha256(self.bot_passphrase.strip().encode("utf-8")).hexdigest()
 
     @property
     def sqlalchemy_database_url(self) -> str:

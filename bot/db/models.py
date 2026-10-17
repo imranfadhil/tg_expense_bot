@@ -128,3 +128,14 @@ class Expense(Base):
     member: Mapped[Optional["Member"]] = relationship("Member", back_populates="expenses")
     category: Mapped["Category"] = relationship("Category", back_populates="expenses")
 
+
+class AuthorizedUser(Base):
+    __tablename__ = "authorized_users"
+
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    passphrase_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    authorized_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+

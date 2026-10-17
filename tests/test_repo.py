@@ -130,3 +130,80 @@ async def test_db_session_middleware_unwraps_update():
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_passphrase_protection_blocks_strangers_and_unlocks_on_valid_pin():
+    from aiogram.types import Chat, Message, Update, User
+    from bot.middlewares.db import DbSessionMiddleware
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    mw = DbSessionMiddleware(session_maker, passphrase="secret-family-pin")
+
+    handler_calls = []
+
+    async def dummy_handler(event, data):
+        handler_calls.append(data)
+        return "handled"
+
+    def make_update(uid: int, text: str, chat_type: str = "private") -> Update:
+        msg = Message(
+            message_id=1,
+            date=datetime.now(),
+            chat=Chat(id=uid, type=chat_type),
+            from_user=User(id=uid, is_bot=False, first_name="Stranger"),
+            text=text,
+        )
+        return Update(update_id=1, message=msg)
+
+    # 1. Stranger sends /start or expense text -> blocked, no DB rows created
+    res1 = await mw(dummy_handler, make_update(999, "/start"), {})
+    assert res1 is None
+    assert len(handler_calls) == 0
+
+    res2 = await mw(dummy_handler, make_update(999, "45.50 groceries"), {})
+    assert res2 is None
+    assert len(handler_calls) == 0
+
+    async with session_maker() as session:
+        repo = ExpenseRepo(session)
+        assert await repo.get_member_by_telegram_id(999) is None
+
+    # 2. User sends valid passphrase via /auth -> unlocked and registered
+    res3 = await mw(dummy_handler, make_update(777, "/auth secret-family-pin"), {})
+    assert res3 is None  # Middleware replies directly with Access Granted card
+
+    async with session_maker() as session:
+        repo = ExpenseRepo(session)
+        member = await repo.get_member_by_telegram_id(777)
+        assert member is not None
+
+    # 3. Subsequent messages from user 777 pass through to handlers
+    res4 = await mw(dummy_handler, make_update(777, "/report"), {})
+    assert res4 == "handled"
+    assert len(handler_calls) == 1
+    assert handler_calls[0]["member"].telegram_user_id == 777
+
+    # 4. Changing passphrase invalidates old authorization until re-authenticated
+    mw_new_pin = DbSessionMiddleware(session_maker, passphrase="rotated-pin-2026")
+    res5 = await mw_new_pin(dummy_handler, make_update(777, "/report"), {})
+    assert res5 is None
+    assert len(handler_calls) == 1
+
+    # 5. Rate limiting blocks brute-force after 5 failed attempts
+    for _ in range(5):
+        await mw_new_pin(dummy_handler, make_update(888, "wrong-pin"), {})
+    assert mw_new_pin._is_rate_limited(888) is True
+    # Even correct pin is blocked while rate-limited
+    res6 = await mw_new_pin(dummy_handler, make_update(888, "rotated-pin-2026"), {})
+    assert res6 is None
+    async with session_maker() as session:
+        repo = ExpenseRepo(session)
+        assert await repo.get_member_by_telegram_id(888) is None
+
+    await engine.dispose()
+
+
+
