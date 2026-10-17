@@ -150,6 +150,44 @@ CATEGORY_ALIASES: dict[str, str] = {
     "appliance": "housing",
     "cleaning": "housing",
     "household": "housing",
+    # Car Loan / Auto (Fixed / Once-off)
+    "auto": "auto",
+    "car_loan": "auto",
+    "car-loan": "auto",
+    "carloan": "auto",
+    "autoloan": "auto",
+    "auto_loan": "auto",
+    "hirepurchase": "auto",
+    "ansuran": "auto",
+    # Kids School Fees (Fixed / Once-off)
+    "school": "school",
+    "sekolah": "school",
+    "school_fees": "school",
+    "school_fee": "school",
+    "school-fees": "school",
+    "school-fee": "school",
+    "schoolfees": "school",
+    "schoolfee": "school",
+    "yuran": "school",
+    # Saving (Fixed / Once-off)
+    "saving": "saving",
+    "savings": "saving",
+    "save": "saving",
+    "simpanan": "saving",
+    "tabung": "saving",
+    "tabunghaji": "saving",
+    "asb": "saving",
+    "sspn": "saving",
+    "fd": "saving",
+    "deposit": "saving",
+    "invest": "saving",
+    "investment": "saving",
+    "pelaburan": "saving",
+    "stashaway": "saving",
+    "wahed": "saving",
+    "epf": "saving",
+    "kwsp": "saving",
+    "cpf": "saving",
     # Kids & Family
     "kids": "kids",
     "kid": "kids",
@@ -160,8 +198,6 @@ CATEGORY_ALIASES: dict[str, str] = {
     "diapers": "kids",
     "pampers": "kids",
     "susu": "kids",
-    "school": "kids",
-    "sekolah": "kids",
     "tuition": "kids",
     "tuisyen": "kids",
     "daycare": "kids",
@@ -212,9 +248,17 @@ CATEGORY_ALIASES: dict[str, str] = {
     "haircut": "shopping",
     "gunting": "shopping",
     "salon": "shopping",
-    "gift": "shopping",
-    "gifts": "shopping",
-    "hadiah": "shopping",
+    # Gift & Presents
+    "gift": "gift",
+    "gifts": "gift",
+    "hadiah": "gift",
+    "present": "gift",
+    "presents": "gift",
+    "angpao": "gift",
+    "angpow": "gift",
+    "duitraya": "gift",
+    "hamper": "gift",
+    "saguhati": "gift",
     # Entertainment & Leisure
     "entertainment": "entertainment",
     "movie": "entertainment",
@@ -241,6 +285,79 @@ CATEGORY_ALIASES: dict[str, str] = {
     "infaq": "misc",
     "zakat": "misc",
 }
+
+# Multi-word phrases checked before single-token aliases so compound categories
+# like "car loan", "kids school fee", and "monthly saving" resolve accurately.
+PHRASE_ALIASES: dict[tuple[str, ...], str] = {
+    ("car", "loan"): "auto",
+    ("auto", "loan"): "auto",
+    ("vehicle", "loan"): "auto",
+    ("car", "installment"): "auto",
+    ("car", "instalment"): "auto",
+    ("loan", "kereta"): "auto",
+    ("ansuran", "kereta"): "auto",
+    ("kids", "school", "fee"): "school",
+    ("kids", "school", "fees"): "school",
+    ("kid", "school", "fee"): "school",
+    ("kid", "school", "fees"): "school",
+    ("kids", "school"): "school",
+    ("kid", "school"): "school",
+    ("school", "fee"): "school",
+    ("school", "fees"): "school",
+    ("tuition", "fee"): "school",
+    ("tuition", "fees"): "school",
+    ("preschool", "fee"): "school",
+    ("preschool", "fees"): "school",
+    ("daycare", "fee"): "school",
+    ("daycare", "fees"): "school",
+    ("yuran", "sekolah"): "school",
+    ("yuran", "tadika"): "school",
+    ("yuran", "taska"): "school",
+    ("monthly", "saving"): "saving",
+    ("monthly", "savings"): "saving",
+    ("emergency", "fund"): "saving",
+    ("fixed", "deposit"): "saving",
+    ("tabung", "haji"): "saving",
+}
+
+# Explicit manual once-off tags users can include in an expense message
+_ONCE_OFF_TOKEN_SET: frozenset[str] = frozenset(
+    {
+        "#once",
+        "#onceoff",
+        "#once-off",
+        "#once_off",
+        "#oneoff",
+        "#one-off",
+        "#one_off",
+        "#onetime",
+        "#one-time",
+        "#fixed",
+        "!once",
+        "!onceoff",
+        "!oneoff",
+        "!fixed",
+        "once-off",
+        "once_off",
+        "onceoff",
+        "one-off",
+        "one_off",
+        "oneoff",
+        "one-time",
+        "onetime",
+        "[once]",
+        "(once)",
+        "(once-off)",
+        "(one-off)",
+    }
+)
+
+_ONCE_OFF_PHRASE_RE = re.compile(
+    r"(?:^|\s)(?:#once(?:-?off)?|#one(?:-?off|-?time)?|#fixed|!once(?:-?off)?|!fixed|"
+    r"\[once(?:-?off)?\]|\(once(?:-?off)?\)|\(one(?:-?off|-?time)?\)|"
+    r"\bonce[-_\s]off\b|\bone[-_\s]off\b|\bone[-_\s]time\b)(?=\s|$)",
+    re.IGNORECASE,
+)
 
 # Matches currency prefix/suffix and number like:
 # "$45.50", "RM45.50", "RM 45.50", "45.50", "SGD 45.50", "45,50", "1,250.00"
@@ -271,6 +388,7 @@ class ParsedExpense:
     category_key: str
     description: str
     matched_explicitly: bool
+    is_once_off: bool = False
 
 
 def _normalize_decimal(amount_int: str, decimals: Optional[str]) -> Optional[Decimal]:
@@ -293,6 +411,46 @@ def _clean_token(word: str) -> str:
     return re.sub(r"[^a-z0-9_-]", "", word.lower())
 
 
+def _extract_once_off_flag(text: str) -> tuple[str, bool]:
+    """
+    Detect and strip manual once-off markers (e.g. '#once', 'once-off', 'one-off', '#fixed')
+    from raw input text. Returns (cleaned_text, is_once_off).
+    """
+    is_once_off = False
+    tokens = text.split()
+    kept_tokens: list[str] = []
+    for tok in tokens:
+        if tok.lower() in _ONCE_OFF_TOKEN_SET:
+            is_once_off = True
+        else:
+            kept_tokens.append(tok)
+    joined = " ".join(kept_tokens)
+    if _ONCE_OFF_PHRASE_RE.search(joined):
+        is_once_off = True
+        joined = _ONCE_OFF_PHRASE_RE.sub(" ", joined)
+        joined = " ".join(joined.split())
+    return joined.strip(), is_once_off
+
+
+def _match_phrase_alias(
+    cleaned_tokens: list[str],
+    known_keys: set[str],
+) -> Optional[tuple[int, int, str]]:
+    """
+    Check if any 3-word or 2-word slice in cleaned_tokens matches PHRASE_ALIASES.
+    Returns (start_idx, length, mapped_category_key) or None.
+    """
+    n = len(cleaned_tokens)
+    for start in range(n):
+        for length in (3, 2):
+            if start + length <= n:
+                phrase = tuple(cleaned_tokens[start : start + length])
+                mapped = PHRASE_ALIASES.get(phrase)
+                if mapped and (not known_keys or mapped in known_keys):
+                    return start, length, mapped
+    return None
+
+
 def parse_expense_text(
     text: str,
     available_category_keys: Optional[Iterable[str]] = None,
@@ -301,6 +459,8 @@ def parse_expense_text(
     Parse natural expense text such as:
       - "45.50 groceries Giant supermarket"
       - "$12.80 lunch Maxwell"
+      - "850 car loan Maybank"
+      - "1200 shopping new fridge #once"
       - "lunch 12.50"
       - "18.00"
     Returns ParsedExpense or None if text does not look like an expense entry.
@@ -312,9 +472,13 @@ def parse_expense_text(
     if "\n" in stripped:
         return None
 
+    stripped, is_once_off = _extract_once_off_flag(stripped)
+    if not stripped:
+        return None
+
     known_keys = {k.lower() for k in (available_category_keys or [])}
 
-    # 1. Try amount only (e.g. "18.50")
+    # 1. Try amount only (e.g. "18.50" or "18.50 #once")
     m_only = _ONLY_AMOUNT_RE.match(stripped)
     if m_only:
         amount = _normalize_decimal(m_only.group("amount"), m_only.group("decimals"))
@@ -325,6 +489,7 @@ def parse_expense_text(
             category_key="misc",
             description="",
             matched_explicitly=False,
+            is_once_off=is_once_off,
         )
 
     # 2. Try leading amount (e.g. "45.50 groceries Giant") or trailing amount (e.g. "lunch 12.50")
@@ -346,9 +511,23 @@ def parse_expense_text(
             category_key="misc",
             description="",
             matched_explicitly=False,
+            is_once_off=is_once_off,
         )
 
-    first_clean = _clean_token(tokens[0])
+    cleaned_tokens = [_clean_token(t) for t in tokens]
+    first_clean = cleaned_tokens[0]
+
+    # Check multi-word phrase aliases starting at token 0 first (e.g. "car loan", "kids school fee")
+    phrase_match = _match_phrase_alias(cleaned_tokens, known_keys)
+    if phrase_match is not None and phrase_match[0] == 0:
+        _, _, mapped_cat = phrase_match
+        return ParsedExpense(
+            amount=amount,
+            category_key=mapped_cat,
+            description=rest,
+            matched_explicitly=True,
+            is_once_off=is_once_off,
+        )
 
     # Check if first word is an exact household category name
     if first_clean in known_keys:
@@ -358,14 +537,13 @@ def parse_expense_text(
             category_key=first_clean,
             description=desc,
             matched_explicitly=True,
+            is_once_off=is_once_off,
         )
 
     # Check if first word matches a canonical category alias
     if first_clean in CATEGORY_ALIASES:
         mapped_cat = CATEGORY_ALIASES[first_clean]
         if not known_keys or mapped_cat in known_keys:
-            # If the user typed the exact category name (e.g. "groceries Giant"), strip the category token from description
-            # If the user typed a descriptive alias (e.g. "lunch Maxwell" or "ntuc"), keep the full description if there's only 1 token or if it adds context
             if first_clean == mapped_cat and len(tokens) > 1:
                 desc = " ".join(tokens[1:]).strip()
             else:
@@ -375,17 +553,29 @@ def parse_expense_text(
                 category_key=mapped_cat,
                 description=desc,
                 matched_explicitly=True,
+                is_once_off=is_once_off,
             )
 
+    # Check if a multi-word phrase alias appears later in the description
+    if phrase_match is not None:
+        _, _, mapped_cat = phrase_match
+        return ParsedExpense(
+            amount=amount,
+            category_key=mapped_cat,
+            description=rest,
+            matched_explicitly=True,
+            is_once_off=is_once_off,
+        )
+
     # Otherwise scan remaining tokens for any category or alias keyword
-    for token in tokens[1:]:
-        cleaned = _clean_token(token)
+    for cleaned in cleaned_tokens[1:]:
         if cleaned in known_keys:
             return ParsedExpense(
                 amount=amount,
                 category_key=cleaned,
                 description=rest,
                 matched_explicitly=True,
+                is_once_off=is_once_off,
             )
         if cleaned in CATEGORY_ALIASES:
             mapped_cat = CATEGORY_ALIASES[cleaned]
@@ -395,6 +585,7 @@ def parse_expense_text(
                     category_key=mapped_cat,
                     description=rest,
                     matched_explicitly=True,
+                    is_once_off=is_once_off,
                 )
 
     # Fallback to 'misc' while keeping the full note
@@ -404,5 +595,7 @@ def parse_expense_text(
         category_key=fallback_cat,
         description=rest,
         matched_explicitly=False,
+        is_once_off=is_once_off,
     )
+
 

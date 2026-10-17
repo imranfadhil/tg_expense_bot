@@ -172,3 +172,133 @@ def test_budget_alerts_warning_and_exceeded():
     )
     assert sum(1 for a in alerts_exceeded if a.level == "exceeded") == 2
 
+
+def test_monthly_report_separates_fixed_and_once_off_from_variable_pace():
+    tz, hh, alice, bob, categories = _sample_fixtures()
+    cat_groceries, cat_dining = categories
+    cat_car_loan = Category(
+        id=3,
+        household_id=1,
+        name="auto",
+        display_name="🚗 Car Loan",
+        is_fixed=True,
+    )
+    cat_school_fees = Category(
+        id=4,
+        household_id=1,
+        name="school",
+        display_name="🎓 Kids School Fee",
+        is_fixed=True,
+    )
+    cat_saving = Category(
+        id=5,
+        household_id=1,
+        name="saving",
+        display_name="🏦 Saving",
+        is_fixed=True,
+    )
+    cat_shopping = Category(
+        id=6,
+        household_id=1,
+        name="shopping",
+        display_name="🛍️ Shopping",
+        is_fixed=False,
+    )
+    all_cats = [cat_groceries, cat_dining, cat_car_loan, cat_school_fees, cat_saving, cat_shopping]
+
+    now = datetime(2026, 10, 15, 12, 0, tzinfo=tz)  # Day 15 of 31
+    expenses = [
+        # Variable expenses: $300 + $150 = $450 over 15 days -> $30/day -> $930 projected variable
+        Expense(
+            id=1,
+            household_id=1,
+            member_id=1,
+            category_id=1,
+            amount=Decimal("300.00"),
+            description="Groceries",
+            spent_at=datetime(2026, 10, 5, 10, 0, tzinfo=tz),
+            member=alice,
+            category=cat_groceries,
+        ),
+        Expense(
+            id=2,
+            household_id=1,
+            member_id=2,
+            category_id=2,
+            amount=Decimal("150.00"),
+            description="Dining",
+            spent_at=datetime(2026, 10, 10, 19, 0, tzinfo=tz),
+            member=bob,
+            category=cat_dining,
+        ),
+        # Fixed categories: $800 car loan + $400 school fees + $300 saving = $1500
+        Expense(
+            id=3,
+            household_id=1,
+            member_id=1,
+            category_id=3,
+            amount=Decimal("800.00"),
+            description="Car loan",
+            spent_at=datetime(2026, 10, 2, 9, 0, tzinfo=tz),
+            member=alice,
+            category=cat_car_loan,
+        ),
+        Expense(
+            id=4,
+            household_id=1,
+            member_id=1,
+            category_id=4,
+            amount=Decimal("400.00"),
+            description="School fee",
+            spent_at=datetime(2026, 10, 3, 9, 0, tzinfo=tz),
+            member=alice,
+            category=cat_school_fees,
+        ),
+        Expense(
+            id=5,
+            household_id=1,
+            member_id=2,
+            category_id=5,
+            amount=Decimal("300.00"),
+            description="Monthly saving",
+            spent_at=datetime(2026, 10, 1, 9, 0, tzinfo=tz),
+            member=bob,
+            category=cat_saving,
+        ),
+        # Manual once-off expense in a variable category: $200 fridge
+        Expense(
+            id=6,
+            household_id=1,
+            member_id=2,
+            category_id=6,
+            amount=Decimal("200.00"),
+            description="Appliance",
+            is_once_off=True,
+            spent_at=datetime(2026, 10, 8, 14, 0, tzinfo=tz),
+            member=bob,
+            category=cat_shopping,
+        ),
+    ]
+
+    report = build_monthly_report(
+        household=hh,
+        categories=all_cats,
+        expenses=expenses,
+        year=2026,
+        month=10,
+        now=now,
+    )
+    assert report.fixed_spent == Decimal("1700.00")
+    assert report.variable_spent == Decimal("450.00")
+    assert report.total_spent == Decimal("2150.00")
+    assert report.variable_daily_average == Decimal("30.00")
+    assert report.projected_variable_total == Decimal("930.00")
+    # Projected total = $1700 fixed + $930 variable = $2630.00 (NOT $2150/15*31 = $4443.33!)
+    assert report.projected_month_total == Decimal("2630.00")
+
+    msg = format_monthly_report_message(report)
+    assert "Fixed / Once-Off:" in msg
+    assert "$1,700.00" in msg
+    assert "$2,630.00" in msg
+
+

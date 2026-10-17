@@ -10,7 +10,12 @@ from bot.config import settings
 from bot.db.models import Category, Expense, Household, Member
 from bot.db.repo import ExpenseRepo
 from bot.keyboards.inline import expense_actions_kb
-from bot.services.analytics import check_budget_alerts, get_month_bounds
+from bot.services.analytics import (
+    check_budget_alerts,
+    get_month_bounds,
+    is_fixed_category,
+    is_once_off_expense,
+)
 from bot.services.parser import parse_expense_text
 
 router = Router(name="expenses")
@@ -55,6 +60,8 @@ async def _format_expense_card(
         f"✅ <b>Expense Recorded: {cur}{expense.amount:,.2f}</b>",
         f"📂 <b>Category:</b> {html.escape(category.display_name)}",
     ]
+    if is_once_off_expense(expense, category):
+        lines.append("📌 <b>Pace Mode:</b> Fixed / Once-Off <i>(counted 1x in month projection)</i>")
     if desc_line:
         lines.append(desc_line.rstrip("\n"))
     if who_line:
@@ -101,7 +108,8 @@ async def _log_from_text(
         if explicit_command:
             await message.answer(
                 "Usage: <code>/add 45.50 groceries Giant supermarket</code>\n"
-                "Or simply send a message like <code>12.80 lunch Maxwell</code>!",
+                "Or simply send a message like <code>12.80 lunch Maxwell</code> "
+                "(add <code>#once</code> for a one-off expense)!",
                 parse_mode="HTML",
             )
         return
@@ -110,6 +118,7 @@ async def _log_from_text(
     if category is None:
         category = cat_by_name.get("misc") or categories[0]
 
+    once_off_flag = parsed.is_once_off or is_fixed_category(category)
     expense = await repo.add_expense(
         household_id=household.id,
         member_id=member.id,
@@ -117,6 +126,7 @@ async def _log_from_text(
         amount=parsed.amount,
         description=parsed.description,
         spent_at=settings.now(),
+        is_once_off=once_off_flag,
     )
 
     show_picker = not parsed.matched_explicitly
@@ -135,6 +145,7 @@ async def _log_from_text(
             expense_id=expense.id,
             categories=categories,
             show_category_picker=show_picker,
+            is_once_off=is_once_off_expense(expense, category),
         ),
     )
 
@@ -198,6 +209,7 @@ async def cb_pick_category(
             expense_id=expense.id,
             categories=categories,
             show_category_picker=True,
+            is_once_off=is_once_off_expense(expense, expense.category),
         )
     )
     await callback.answer("Select a category:")
@@ -234,9 +246,59 @@ async def cb_set_category(
         reply_markup=expense_actions_kb(
             expense_id=updated.id,
             show_category_picker=False,
+            is_once_off=is_once_off_expense(updated, updated.category),
         ),
     )
     await callback.answer(f"Category updated to {updated.category.display_name}")
+
+
+@router.callback_query(F.data.startswith("exp_once:"))
+async def cb_toggle_once_off(
+    callback: CallbackQuery,
+    repo: ExpenseRepo,
+    household: Household,
+) -> None:
+    if not callback.data or not callback.message:
+        await callback.answer()
+        return
+
+    expense_id = int(callback.data.split(":")[1])
+    expense = await repo.get_expense_by_id(household.id, expense_id)
+    if expense is None or expense.category is None:
+        await callback.answer("Expense no longer exists.", show_alert=True)
+        return
+
+    if is_fixed_category(expense.category):
+        await callback.answer(
+            f"📌 {expense.category.display_name} is a Fixed/Once-off category and is always counted 1x in month-end projections.",
+            show_alert=True,
+        )
+        return
+
+    updated = await repo.toggle_expense_once_off(household.id, expense_id)
+    if updated is None or updated.category is None:
+        await callback.answer("Expense no longer exists.", show_alert=True)
+        return
+
+    card_text = await _format_expense_card(
+        repo=repo,
+        household=household,
+        expense=updated,
+        category=updated.category,
+        member=updated.member,
+        prompt_category_selection=False,
+    )
+    await callback.message.edit_text(
+        card_text,
+        parse_mode="HTML",
+        reply_markup=expense_actions_kb(
+            expense_id=updated.id,
+            show_category_picker=False,
+            is_once_off=is_once_off_expense(updated, updated.category),
+        ),
+    )
+    status_str = "Marked as Once-Off (counted 1x in projection)" if updated.is_once_off else "Set to regular daily variable spend"
+    await callback.answer(status_str)
 
 
 @router.callback_query(F.data.startswith("exp_del:"))

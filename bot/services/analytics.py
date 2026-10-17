@@ -8,7 +8,17 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from bot.db.models import Category, Expense, Household
+from bot.db.models import Category, Expense, FIXED_CATEGORY_NAMES, Household
+
+
+def is_fixed_category(cat: Optional[Category]) -> bool:
+    if cat is None:
+        return False
+    return bool(getattr(cat, "is_fixed", False)) or (cat.name.lower() in FIXED_CATEGORY_NAMES)
+
+
+def is_once_off_expense(exp: Expense, cat: Optional[Category]) -> bool:
+    return bool(getattr(exp, "is_once_off", False)) or is_fixed_category(cat)
 
 
 @dataclass(frozen=True)
@@ -21,6 +31,8 @@ class CategorySummary:
     share_pct: Decimal
     budget: Optional[Decimal]
     budget_pct: Optional[Decimal]
+    is_fixed: bool = False
+    fixed_total: Decimal = Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -49,6 +61,10 @@ class MonthlyReport:
     safe_daily_remaining: Optional[Decimal]
     categories: list[CategorySummary]
     members: list[MemberSummary]
+    fixed_spent: Decimal = Decimal("0.00")
+    variable_spent: Decimal = Decimal("0.00")
+    variable_daily_average: Decimal = Decimal("0.00")
+    projected_variable_total: Decimal = Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -137,13 +153,51 @@ def build_monthly_report(
     else:
         days_elapsed = 1
 
-    total_spent = sum((e.amount for e in expenses), Decimal("0.00"))
+    cat_map = {c.id: c for c in categories}
+    cat_totals: dict[int, Decimal] = {}
+    cat_fixed_totals: dict[int, Decimal] = {}
+    cat_counts: dict[int, int] = {}
+
+    member_totals: dict[Optional[int], Decimal] = {}
+    member_counts: dict[Optional[int], int] = {}
+    member_names: dict[Optional[int], str] = {}
+
+    fixed_spent = Decimal("0.00")
+    variable_spent = Decimal("0.00")
+
+    for exp in expenses:
+        cid = exp.category_id
+        cat = cat_map.get(cid) or getattr(exp, "category", None)
+        if cat is not None and cid not in cat_map:
+            cat_map[cid] = cat
+
+        cat_totals[cid] = cat_totals.get(cid, Decimal("0.00")) + exp.amount
+        cat_counts[cid] = cat_counts.get(cid, 0) + 1
+
+        if is_once_off_expense(exp, cat):
+            fixed_spent += exp.amount
+            cat_fixed_totals[cid] = cat_fixed_totals.get(cid, Decimal("0.00")) + exp.amount
+        else:
+            variable_spent += exp.amount
+
+        mid = exp.member_id
+        mname = exp.member.display_name if exp.member else "Member"
+        member_names[mid] = mname
+        member_totals[mid] = member_totals.get(mid, Decimal("0.00")) + exp.amount
+        member_counts[mid] = member_counts.get(mid, 0) + 1
+
+    total_spent = fixed_spent + variable_spent
     tx_count = len(expenses)
 
     daily_avg = _q2(total_spent / Decimal(days_elapsed)) if total_spent > 0 else Decimal("0.00")
+    variable_daily_avg = (
+        _q2(variable_spent / Decimal(days_elapsed)) if variable_spent > 0 else Decimal("0.00")
+    )
     if (year, month) == (now.year, now.month):
-        projected_total = _q2(daily_avg * Decimal(days_in_month))
+        projected_variable = _q2(variable_daily_avg * Decimal(days_in_month))
+        projected_total = _q2(fixed_spent + projected_variable)
     else:
+        projected_variable = variable_spent
         projected_total = total_spent
 
     hh_budget = household.monthly_budget
@@ -155,25 +209,6 @@ def build_monthly_report(
         if remaining_days > 0:
             rem_budget = max(Decimal("0.00"), hh_budget - total_spent)
             safe_daily_remaining = _q2(rem_budget / Decimal(remaining_days))
-
-    cat_map = {c.id: c for c in categories}
-    cat_totals: dict[int, Decimal] = {}
-    cat_counts: dict[int, int] = {}
-
-    member_totals: dict[Optional[int], Decimal] = {}
-    member_counts: dict[Optional[int], int] = {}
-    member_names: dict[Optional[int], str] = {}
-
-    for exp in expenses:
-        cid = exp.category_id
-        cat_totals[cid] = cat_totals.get(cid, Decimal("0.00")) + exp.amount
-        cat_counts[cid] = cat_counts.get(cid, 0) + 1
-
-        mid = exp.member_id
-        mname = exp.member.display_name if exp.member else "Member"
-        member_names[mid] = mname
-        member_totals[mid] = member_totals.get(mid, Decimal("0.00")) + exp.amount
-        member_counts[mid] = member_counts.get(mid, 0) + 1
 
     # Include categories with spending OR categories that have an active budget
     cat_summaries: list[CategorySummary] = []
@@ -207,6 +242,8 @@ def build_monthly_report(
                 share_pct=share_pct,
                 budget=cbudget,
                 budget_pct=cbudget_pct,
+                is_fixed=is_fixed_category(cat),
+                fixed_total=cat_fixed_totals.get(cid, Decimal("0.00")),
             )
         )
     cat_summaries.sort(key=lambda c: (c.total, c.budget or Decimal("0")), reverse=True)
@@ -246,6 +283,10 @@ def build_monthly_report(
         safe_daily_remaining=safe_daily_remaining,
         categories=cat_summaries,
         members=mem_summaries,
+        fixed_spent=fixed_spent,
+        variable_spent=variable_spent,
+        variable_daily_average=variable_daily_avg,
+        projected_variable_total=projected_variable,
     )
 
 
@@ -428,13 +469,32 @@ def format_monthly_report_message(report: MonthlyReport) -> str:
         f"📊 <b>{html.escape(report.month_label)} — Family Financial Report</b>",
         "",
         f"💰 <b>Total Spent:</b> {cur}{report.total_spent:,.2f}  <i>({report.tx_count} expenses)</i>",
-        f"📅 <b>Daily Avg ({report.days_elapsed}/{report.days_in_month}d):</b> {cur}{report.daily_average:,.2f}/day",
     ]
 
-    if report.days_elapsed < report.days_in_month and report.total_spent > 0:
+    if report.fixed_spent > 0:
         lines.append(
-            f"🔮 <b>Projected Month-End:</b> {cur}{report.projected_month_total:,.2f}"
+            f"📌 <b>Fixed / Once-Off:</b> {cur}{report.fixed_spent:,.2f}  <i>(counted 1x)</i>"
         )
+        lines.append(
+            f"🔄 <b>Variable Spend ({report.days_elapsed}/{report.days_in_month}d):</b> "
+            f"{cur}{report.variable_spent:,.2f}  <i>({cur}{report.variable_daily_average:,.2f}/day)</i>"
+        )
+    else:
+        lines.append(
+            f"📅 <b>Daily Avg ({report.days_elapsed}/{report.days_in_month}d):</b> {cur}{report.daily_average:,.2f}/day"
+        )
+
+    if report.days_elapsed < report.days_in_month and report.total_spent > 0:
+        if report.fixed_spent > 0:
+            lines.append(
+                f"🔮 <b>Projected Month-End:</b> {cur}{report.projected_month_total:,.2f}\n"
+                f"   <i>↳ {cur}{report.fixed_spent:,.2f} fixed + {cur}{report.projected_variable_total:,.2f} "
+                f"variable ({cur}{report.variable_daily_average:,.2f}/d × {report.days_in_month}d)</i>"
+            )
+        else:
+            lines.append(
+                f"🔮 <b>Projected Month-End:</b> {cur}{report.projected_month_total:,.2f}"
+            )
 
     if report.household_budget and report.household_budget > 0 and report.household_budget_pct is not None:
         bar = progress_bar(report.household_budget_pct)
@@ -449,6 +509,16 @@ def format_monthly_report_message(report: MonthlyReport) -> str:
             f"({report.household_budget_pct}%) {status_icon}"
         )
         lines.append(f"<code>{bar}</code>")
+        if report.days_elapsed < report.days_in_month and report.total_spent > 0:
+            proj_diff = report.projected_month_total - report.household_budget
+            if proj_diff > 0:
+                lines.append(
+                    f"⚠️ <b>Forecast vs Budget:</b> Projected +{cur}{proj_diff:,.2f} over budget"
+                )
+            else:
+                lines.append(
+                    f"✅ <b>Forecast vs Budget:</b> On track ({cur}{abs(proj_diff):,.2f} under budget)"
+                )
         if report.safe_daily_remaining is not None:
             lines.append(
                 f"🛡️ <b>Prudent Safe Daily Limit:</b> {cur}{report.safe_daily_remaining:,.2f}/day for rest of month"
@@ -461,6 +531,11 @@ def format_monthly_report_message(report: MonthlyReport) -> str:
     else:
         for c in report.categories:
             bar = progress_bar(c.share_pct, width=8)
+            fixed_tag = ""
+            if c.is_fixed:
+                fixed_tag = " <i>[📌 Fixed]</i>"
+            elif c.fixed_total > 0:
+                fixed_tag = f" <i>[📌 {cur}{c.fixed_total:,.2f} once-off]</i>"
             budget_tag = ""
             if c.budget and c.budget > 0 and c.budget_pct is not None:
                 b_icon = (
@@ -471,7 +546,7 @@ def format_monthly_report_message(report: MonthlyReport) -> str:
                 budget_tag = f" <i>[Cap: {cur}{c.budget:,.0f} · {c.budget_pct}%{b_icon}]</i>"
             lines.append(
                 f"<code>{bar}</code> <b>{html.escape(c.display_name)}</b>: "
-                f"{cur}{c.total:,.2f} ({c.share_pct}%){budget_tag}"
+                f"{cur}{c.total:,.2f} ({c.share_pct}%){fixed_tag}{budget_tag}"
             )
 
     if len(report.members) > 1:

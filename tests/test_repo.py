@@ -55,6 +55,13 @@ async def test_repo_household_invite_and_expense_lifecycle():
         categories = await repo.get_categories(hh1.id)
         groceries = next(c for c in categories if c.name == "groceries")
         dining = next(c for c in categories if c.name == "dining")
+        car_loan = next(c for c in categories if c.name == "auto")
+        school_fees = next(c for c in categories if c.name == "school")
+        salary_ded = next(c for c in categories if c.name == "saving")
+        assert car_loan.is_fixed is True
+        assert school_fees.is_fixed is True
+        assert salary_ded.is_fixed is True
+        assert groceries.is_fixed is False
 
         tz = ZoneInfo("Asia/Singapore")
         dt = datetime(2026, 10, 17, 13, 30, tzinfo=tz)
@@ -75,6 +82,11 @@ async def test_repo_household_invite_and_expense_lifecycle():
             description="Lunch",
             spent_at=dt,
         )
+        assert exp2.is_once_off is False
+
+        toggled = await repo.toggle_expense_once_off(hh1.id, exp2.id)
+        assert toggled is not None
+        assert toggled.is_once_off is True
 
         start_dt, end_dt = get_month_bounds(2026, 10, tz)
         total = await repo.get_period_total(hh1.id, start_dt, end_dt)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from bot.config import settings
 from bot.db.models import (
     DEFAULT_CATEGORIES,
+    FIXED_CATEGORY_NAMES,
     AuthorizedUser,
     Category,
     Expense,
@@ -194,6 +195,7 @@ class ExpenseRepo:
                 household_id=household.id,
                 name=key,
                 display_name=label,
+                is_fixed=(key in FIXED_CATEGORY_NAMES),
             )
             self.session.add(cat)
 
@@ -267,6 +269,7 @@ class ExpenseRepo:
         household_id: int,
         name: str,
         display_name: Optional[str] = None,
+        is_fixed: Optional[bool] = None,
     ) -> Category:
         norm = name.strip().lower()
         stmt = select(Category).where(
@@ -276,12 +279,16 @@ class ExpenseRepo:
         result = await self.session.execute(stmt)
         cat = result.scalar_one_or_none()
         if cat is not None:
+            if is_fixed is not None and cat.is_fixed != is_fixed:
+                cat.is_fixed = is_fixed
+                await self.session.commit()
             return cat
 
         cat = Category(
             household_id=household_id,
             name=norm,
             display_name=display_name or f"🏷️ {norm.capitalize()}",
+            is_fixed=is_fixed if is_fixed is not None else (norm in FIXED_CATEGORY_NAMES),
         )
         self.session.add(cat)
         await self.session.commit()
@@ -329,6 +336,7 @@ class ExpenseRepo:
         amount: Decimal,
         description: str = "",
         spent_at: Optional[datetime] = None,
+        is_once_off: bool = False,
     ) -> Expense:
         expense = Expense(
             household_id=household_id,
@@ -336,6 +344,7 @@ class ExpenseRepo:
             category_id=category_id,
             amount=amount,
             description=description.strip(),
+            is_once_off=is_once_off,
             spent_at=spent_at or settings.now(),
         )
         self.session.add(expense)
@@ -367,6 +376,16 @@ class ExpenseRepo:
         if cat is None:
             return None
         expense.category_id = cat.id
+        await self.session.commit()
+        return await self.get_expense_by_id(household_id, expense_id)
+
+    async def toggle_expense_once_off(
+        self, household_id: int, expense_id: int
+    ) -> Optional[Expense]:
+        expense = await self.get_expense_by_id(household_id, expense_id)
+        if expense is None:
+            return None
+        expense.is_once_off = not bool(expense.is_once_off)
         await self.session.commit()
         return await self.get_expense_by_id(household_id, expense_id)
 

@@ -11,8 +11,8 @@ from aiogram.types import Message
 from bot.config import settings
 from bot.db.models import Household
 from bot.db.repo import ExpenseRepo
-from bot.services.analytics import get_month_bounds, progress_bar
-from bot.services.parser import CATEGORY_ALIASES
+from bot.services.analytics import get_month_bounds, is_fixed_category, progress_bar
+from bot.services.parser import CATEGORY_ALIASES, PHRASE_ALIASES
 
 router = Router(name="budgets")
 
@@ -185,18 +185,20 @@ async def cmd_categories(
     categories = await repo.get_categories(household.id)
     lines = ["🗂️ <b>Household Expense Categories:</b>", ""]
     for c in categories:
+        fixed_str = " · 📌 <i>Fixed / Once-Off</i>" if is_fixed_category(c) else ""
         b_str = (
             f" — Budget: {cur}{c.monthly_budget:,.2f}/mo"
             if (c.monthly_budget and c.monthly_budget > 0)
             else ""
         )
         lines.append(
-            f"• <b>{html.escape(c.display_name)}</b> (keyword: <code>{c.name}</code>){b_str}"
+            f"• <b>{html.escape(c.display_name)}</b> (keyword: <code>{c.name}</code>){fixed_str}{b_str}"
         )
     lines.append("")
     lines.append(
         "➕ <b>Add a custom category:</b>\n"
-        "<code>/addcategory pets 🐶 Pets</code>"
+        "• Variable (daily): <code>/addcategory pets 🐶 Pets</code>\n"
+        "• Fixed / Once-Off: <code>/addcategory insurance 🛡️ Insurance #fixed</code>"
     )
     await message.answer("\n".join(lines), parse_mode="HTML")
 
@@ -210,13 +212,32 @@ async def cmd_addcategory(
 ) -> None:
     if not command.args or not command.args.strip():
         await message.answer(
-            "Usage: <code>/addcategory &lt;keyword&gt; [Emoji Display Name]</code>\n"
-            "Example: <code>/addcategory pets 🐶 Pets</code>",
+            "Usage: <code>/addcategory &lt;keyword&gt; [Emoji Display Name] [#fixed]</code>\n"
+            "Example: <code>/addcategory pets 🐶 Pets</code>\n"
+            "Fixed monthly bill: <code>/addcategory insurance 🛡️ Insurance #fixed</code>",
             parse_mode="HTML",
         )
         return
 
-    parts = command.args.strip().split(maxsplit=1)
+    raw_args = command.args.strip()
+    is_fixed: bool | None = None
+    tokens = raw_args.split()
+    kept_tokens: list[str] = []
+    for tok in tokens:
+        if tok.lower() in ("#fixed", "#once", "#once-off", "#onceoff", "once-off"):
+            is_fixed = True
+        else:
+            kept_tokens.append(tok)
+
+    cleaned_args = " ".join(kept_tokens).strip()
+    if not cleaned_args:
+        await message.answer(
+            "❌ Category keyword must contain letters or numbers (e.g. <code>pets</code>).",
+            parse_mode="HTML",
+        )
+        return
+
+    parts = cleaned_args.split(maxsplit=1)
     raw_key = re.sub(r"[^a-z0-9_-]", "", parts[0].lower())
     if not raw_key:
         await message.answer(
@@ -230,10 +251,12 @@ async def cmd_addcategory(
         household_id=household.id,
         name=raw_key,
         display_name=display_name,
+        is_fixed=is_fixed,
     )
+    mode_label = "📌 Fixed / Once-Off (counted 1x in projections)" if is_fixed_category(cat) else "🔄 Variable (daily pace)"
     await message.answer(
         f"✅ Category ready: <b>{html.escape(cat.display_name)}</b> "
-        f"(keyword: <code>{cat.name}</code>)\n"
+        f"(keyword: <code>{cat.name}</code> · {mode_label})\n"
         f"You can now log expenses like: <code>25.00 {cat.name} description</code>",
         parse_mode="HTML",
     )

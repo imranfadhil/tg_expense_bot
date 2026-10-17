@@ -19,6 +19,7 @@ from bot.services.analytics import (
     format_comparison_message,
     format_monthly_report_message,
     get_month_bounds,
+    is_once_off_expense,
     prev_month,
 )
 
@@ -177,6 +178,7 @@ async def cmd_recent(
         local_dt = exp.spent_at.astimezone(settings.tz)
         dt_str = local_dt.strftime("%d %b %H:%M")
         cat_label = html.escape(exp.category.display_name if exp.category else "📦 Misc")
+        once_badge = " 📌" if is_once_off_expense(exp, exp.category) else ""
         desc_str = f" — {html.escape(exp.description)}" if exp.description else ""
         who_str = (
             f" <i>({html.escape(exp.member.display_name)})</i>"
@@ -184,7 +186,7 @@ async def cmd_recent(
             else ""
         )
         lines.append(
-            f"• <code>{dt_str}</code> | <b>{cur}{exp.amount:,.2f}</b> · {cat_label}{desc_str}{who_str}"
+            f"• <code>{dt_str}</code> | <b>{cur}{exp.amount:,.2f}</b> · {cat_label}{once_badge}{desc_str}{who_str}"
         )
 
     lines.append("")
@@ -216,7 +218,7 @@ async def cmd_export(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["ID", "Date", "Time", "Category", "Amount", "Currency", "Member", "Description"])
+    writer.writerow(["ID", "Date", "Time", "Category", "Amount", "Currency", "Once-Off", "Member", "Description"])
     for exp in reversed(expenses):
         local_dt = exp.spent_at.astimezone(settings.tz)
         writer.writerow(
@@ -227,6 +229,7 @@ async def cmd_export(
                 exp.category.name if exp.category else "misc",
                 f"{exp.amount:.2f}",
                 household.currency,
+                "Yes" if is_once_off_expense(exp, exp.category) else "No",
                 exp.member.display_name if exp.member else "",
                 exp.description,
             ]

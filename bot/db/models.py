@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -28,12 +29,28 @@ DEFAULT_CATEGORIES: list[tuple[str, str]] = [
     ("transport", "🚌 Transport"),
     ("utilities", "💡 Utilities"),
     ("housing", "🏠 Housing"),
+    ("auto", "🚗 Car Loan"),
+    ("school", "🎓 Kids School Fee"),
+    ("saving", "🏦 Saving"),
     ("kids", "👶 Kids & Family"),
     ("health", "🏥 Health"),
     ("shopping", "🛍️ Shopping"),
+    ("gift", "🎁 Gift"),
     ("entertainment", "🎬 Entertainment"),
     ("misc", "📦 Misc"),
 ]
+
+# Categories whose expenses are fixed/monthly one-offs rather than daily recurring spend
+FIXED_CATEGORY_NAMES: frozenset[str] = frozenset(
+    {
+        "housing",
+        "utilities",
+        "auto",
+        "school",
+        "saving",
+        "gift",
+    }
+)
 
 
 class Household(Base):
@@ -94,6 +111,9 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     monthly_budget: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
+    is_fixed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
 
     household: Mapped["Household"] = relationship("Household", back_populates="categories")
     expenses: Mapped[List["Expense"]] = relationship("Expense", back_populates="category")
@@ -117,6 +137,9 @@ class Expense(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     description: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    is_once_off: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
     spent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )

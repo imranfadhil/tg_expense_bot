@@ -13,8 +13,10 @@ def expense_actions_kb(
     expense_id: int,
     categories: Sequence[Category] = (),
     show_category_picker: bool = False,
+    is_once_off: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    once_label = "📌 Once-Off ✅" if is_once_off else "📌 Once-Off"
 
     if show_category_picker and categories:
         for cat in categories:
@@ -25,9 +27,13 @@ def expense_actions_kb(
         builder.adjust(2)
         builder.row(
             InlineKeyboardButton(
+                text=once_label,
+                callback_data=f"exp_once:{expense_id}",
+            ),
+            InlineKeyboardButton(
                 text="🗑️ Undo / Delete",
                 callback_data=f"exp_del:{expense_id}",
-            )
+            ),
         )
         return builder.as_markup()
 
@@ -35,6 +41,10 @@ def expense_actions_kb(
         InlineKeyboardButton(
             text="✏️ Category",
             callback_data=f"exp_pickcat:{expense_id}",
+        ),
+        InlineKeyboardButton(
+            text=once_label,
+            callback_data=f"exp_once:{expense_id}",
         ),
         InlineKeyboardButton(
             text="🗑️ Undo",

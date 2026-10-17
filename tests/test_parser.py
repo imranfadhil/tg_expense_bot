@@ -8,9 +8,13 @@ DEFAULT_KEYS = [
     "transport",
     "utilities",
     "housing",
+    "auto",
+    "school",
+    "saving",
     "kids",
     "health",
     "shopping",
+    "gift",
     "entertainment",
     "misc",
 ]
@@ -23,6 +27,7 @@ def test_parse_explicit_category_and_note():
     assert res.category_key == "groceries"
     assert res.description == "Giant supermarket"
     assert res.matched_explicitly is True
+    assert res.is_once_off is False
 
 
 def test_parse_alias_keyword_and_currency_prefix():
@@ -85,8 +90,54 @@ def test_parse_rm_currency_and_malaysian_keywords():
     assert res2.description == "nasi lemak mamak"
 
 
+def test_parse_once_off_categories_phrases_and_keywords():
+    car_res = parse_expense_text("850 car loan Maybank", DEFAULT_KEYS)
+    assert car_res is not None
+    assert car_res.amount == Decimal("850.00")
+    assert car_res.category_key == "auto"
+    assert car_res.matched_explicitly is True
+
+    auto_res = parse_expense_text("850 auto Maybank", DEFAULT_KEYS)
+    assert auto_res is not None
+    assert auto_res.category_key == "auto"
+
+    school_res = parse_expense_text("450 school April", DEFAULT_KEYS)
+    assert school_res is not None
+    assert school_res.amount == Decimal("450.00")
+    assert school_res.category_key == "school"
+    assert school_res.matched_explicitly is True
+
+    ded_res = parse_expense_text("620 saving CPF", DEFAULT_KEYS)
+    assert ded_res is not None
+    assert ded_res.amount == Decimal("620.00")
+    assert ded_res.category_key == "saving"
+    assert ded_res.matched_explicitly is True
+
+    # Ensure regular 'kids' expenses still match 'kids'
+    kids_res = parse_expense_text("120 kids enrichment class", DEFAULT_KEYS)
+    assert kids_res is not None
+    assert kids_res.category_key == "kids"
+
+
+def test_parse_manual_once_off_tags():
+    res1 = parse_expense_text("1200 shopping new fridge #once", DEFAULT_KEYS)
+    assert res1 is not None
+    assert res1.amount == Decimal("1200.00")
+    assert res1.category_key == "shopping"
+    assert res1.description == "new fridge"
+    assert res1.is_once_off is True
+
+    res2 = parse_expense_text("350 once-off health annual checkup", DEFAULT_KEYS)
+    assert res2 is not None
+    assert res2.amount == Decimal("350.00")
+    assert res2.category_key == "health"
+    assert res2.description == "annual checkup"
+    assert res2.is_once_off is True
+
+
 def test_ignore_non_expense_messages():
     assert parse_expense_text("Hello family, what's for dinner?", DEFAULT_KEYS) is None
     assert parse_expense_text("/report", DEFAULT_KEYS) is None
     assert parse_expense_text("0 groceries", DEFAULT_KEYS) is None
+
 
