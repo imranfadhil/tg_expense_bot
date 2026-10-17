@@ -11,10 +11,11 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 
 from bot.config import settings
-from bot.db.models import Household
+from bot.db.models import Household, Member
 from bot.db.repo import ExpenseRepo
 from bot.keyboards.inline import (
     compare_nav_kb,
+    dashboard_launch_kb,
     recent_expenses_kb,
     recurring_expenses_kb,
     report_nav_kb,
@@ -28,6 +29,7 @@ from bot.services.analytics import (
     is_once_off_expense,
     prev_month,
 )
+from bot.webapp.auth import create_dashboard_token, resolve_public_webapp_url
 
 router = Router(name="reports")
 
@@ -42,6 +44,27 @@ def _parse_year_month(arg: str | None) -> tuple[int, int]:
     if not m:
         return now.year, now.month
     return int(m.group("year")), int(m.group("month"))
+
+
+async def _build_signed_dashboard_url(
+    household: Household,
+    member: Member | None = None,
+    year: int | None = None,
+    month: int | None = None,
+) -> tuple[str | None, str]:
+    token = create_dashboard_token(
+        household_id=household.id,
+        member_id=member.id if member else None,
+        telegram_user_id=member.telegram_user_id if member else None,
+    )
+    qs = f"token={token}"
+    if year and month:
+        qs += f"&year={year}&month={month}"
+
+    base_url = await resolve_public_webapp_url()
+    if base_url:
+        return f"{base_url}/?{qs}", token
+    return None, token
 
 
 async def _render_monthly_report(
@@ -92,19 +115,69 @@ async def _render_comparison_report(
     return format_comparison_message(comp)
 
 
+@router.message(Command("dashboard", "app", "live", "webapp"))
+async def cmd_dashboard(
+    message: Message,
+    command: CommandObject,
+    household: Household,
+    member: Member | None = None,
+) -> None:
+    year, month = _parse_year_month(command.args if command else None)
+    dash_url, token = await _build_signed_dashboard_url(
+        household=household,
+        member=member,
+        year=year,
+        month=month,
+    )
+    is_private = bool(message.chat and message.chat.type == "private")
+    local_url = f"http://localhost:{settings.webapp_port}/?token={token}&year={year}&month={month}"
+
+    if dash_url:
+        kb = dashboard_launch_kb(dash_url, is_private_chat=is_private)
+        mode_hint = (
+            "Tap the button below to launch the interactive <b>Telegram Mini App</b> directly inside Telegram:"
+            if (is_private and dash_url.startswith("https://"))
+            else "Tap the button below to open your interactive <b>Live Financial Dashboard</b>:"
+        )
+        await message.answer(
+            f"📱 <b>{html.escape(household.name)} — Live Dashboard</b>\n\n"
+            f"{mode_hint}\n"
+            f"• 📊 Interactive spend trajectory & category donut charts\n"
+            f"• 🧾 Search, filter, add, edit & delete expenses\n"
+            f"• 🎯 Manage monthly & category budgets in real time\n"
+            f"• 🔁 Manage monthly recurring commitments",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
+    else:
+        await message.answer(
+            f"📱 <b>{html.escape(household.name)} — Live Dashboard</b>\n\n"
+            f"🌐 <b>Local Browser Link:</b>\n"
+            f"<code>{html.escape(local_url)}</code>\n\n"
+            f"💡 <i>To open as an embedded Telegram Mini App button, set <code>WEBAPP_URL=https://...</code> "
+            f"in <code>.env</code> or run with the built-in Docker Compose <code>tunnel</code> service.</i>",
+            parse_mode="HTML",
+        )
+
+
 @router.message(Command("report", "month", "summary"))
 async def cmd_report(
     message: Message,
     command: CommandObject,
     repo: ExpenseRepo,
     household: Household,
+    member: Member | None = None,
 ) -> None:
     year, month = _parse_year_month(command.args)
     text = await _render_monthly_report(repo, household, year, month)
+    dash_url, _ = await _build_signed_dashboard_url(household, member, year, month)
+    is_private = bool(message.chat and message.chat.type == "private")
     await message.answer(
         text,
         parse_mode="HTML",
-        reply_markup=report_nav_kb(year, month),
+        reply_markup=report_nav_kb(
+            year, month, dashboard_url=dash_url, is_private_chat=is_private
+        ),
     )
 
 
@@ -114,13 +187,18 @@ async def cmd_compare(
     command: CommandObject,
     repo: ExpenseRepo,
     household: Household,
+    member: Member | None = None,
 ) -> None:
     year, month = _parse_year_month(command.args)
     text = await _render_comparison_report(repo, household, year, month)
+    dash_url, _ = await _build_signed_dashboard_url(household, member, year, month)
+    is_private = bool(message.chat and message.chat.type == "private")
     await message.answer(
         text,
         parse_mode="HTML",
-        reply_markup=compare_nav_kb(year, month),
+        reply_markup=compare_nav_kb(
+            year, month, dashboard_url=dash_url, is_private_chat=is_private
+        ),
     )
 
 
@@ -129,6 +207,7 @@ async def cb_report_month(
     callback: CallbackQuery,
     repo: ExpenseRepo,
     household: Household,
+    member: Member | None = None,
 ) -> None:
     if not callback.data or not callback.message:
         await callback.answer()
@@ -136,10 +215,14 @@ async def cb_report_month(
     parts = callback.data.split(":")
     year, month = int(parts[1]), int(parts[2])
     text = await _render_monthly_report(repo, household, year, month)
+    dash_url, _ = await _build_signed_dashboard_url(household, member, year, month)
+    is_private = bool(callback.message.chat and callback.message.chat.type == "private")
     await callback.message.edit_text(
         text,
         parse_mode="HTML",
-        reply_markup=report_nav_kb(year, month),
+        reply_markup=report_nav_kb(
+            year, month, dashboard_url=dash_url, is_private_chat=is_private
+        ),
     )
     await callback.answer()
 
@@ -149,6 +232,7 @@ async def cb_report_compare(
     callback: CallbackQuery,
     repo: ExpenseRepo,
     household: Household,
+    member: Member | None = None,
 ) -> None:
     if not callback.data or not callback.message:
         await callback.answer()
@@ -156,10 +240,14 @@ async def cb_report_compare(
     parts = callback.data.split(":")
     year, month = int(parts[1]), int(parts[2])
     text = await _render_comparison_report(repo, household, year, month)
+    dash_url, _ = await _build_signed_dashboard_url(household, member, year, month)
+    is_private = bool(callback.message.chat and callback.message.chat.type == "private")
     await callback.message.edit_text(
         text,
         parse_mode="HTML",
-        reply_markup=compare_nav_kb(year, month),
+        reply_markup=compare_nav_kb(
+            year, month, dashboard_url=dash_url, is_private_chat=is_private
+        ),
     )
     await callback.answer()
 

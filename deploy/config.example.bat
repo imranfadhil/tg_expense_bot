@@ -41,3 +41,8 @@ set TIMEZONE=Asia/Kuala_Lumpur
 REM Internal PostgreSQL database settings (isolated inside tg_expense_db container)
 set POSTGRES_USER=expense_user
 set POSTGRES_DB=family_expenses
+
+REM Telegram Mini App Live Dashboard (FastAPI - uses 8090 to avoid port 8080 collision)
+REM Leave WEBAPP_URL blank to use the built-in Cloudflare HTTPS Quick Tunnel automatically
+set WEBAPP_PORT=8090
+set WEBAPP_URL=

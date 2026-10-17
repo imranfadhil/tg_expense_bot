@@ -4,16 +4,19 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
+import uvicorn
 
 from bot.config import settings
 from bot.db.base import AsyncSessionLocal, engine, init_db
 from bot.handlers import setup_routers
 from bot.middlewares.db import DbSessionMiddleware
+from bot.webapp import create_webapp, resolve_public_webapp_url
 
 
 async def _set_bot_commands(bot: Bot) -> None:
     commands = [
+        BotCommand(command="dashboard", description="📱 Open interactive Live Mini App Dashboard"),
         BotCommand(command="report", description="📊 Monthly summary, pace forecast & breakdown"),
         BotCommand(command="compare", description="📈 Month-over-Month comparison & pace check"),
         BotCommand(command="budget", description="🎯 View or set monthly & category budgets"),
@@ -25,6 +28,29 @@ async def _set_bot_commands(bot: Bot) -> None:
         BotCommand(command="help", description="📖 How to log & manage family expenses"),
     ]
     await bot.set_my_commands(commands)
+
+
+async def _sync_webapp_menu_button(bot: Bot, logger: logging.Logger) -> None:
+    """
+    Wait for either WEBAPP_URL or the Cloudflare Quick Tunnel sidecar to become ready,
+    then register the Telegram ChatMenuButtonWebApp so users have a 1-tap Dashboard button.
+    """
+    for _ in range(15):
+        public_url = await resolve_public_webapp_url()
+        if public_url and public_url.startswith("https://"):
+            try:
+                await bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp(
+                        text="📊 Dashboard",
+                        web_app=WebAppInfo(url=public_url),
+                    )
+                )
+                logger.info("Telegram Mini App Menu Button registered: %s", public_url)
+                return
+            except Exception as exc:
+                logger.warning("Could not set Telegram MenuButtonWebApp: %s", exc)
+                return
+        await asyncio.sleep(2.0)
 
 
 async def main() -> None:
@@ -57,11 +83,43 @@ async def main() -> None:
     dp.include_router(setup_routers())
 
     await _set_bot_commands(bot)
+
+    web_server: uvicorn.Server | None = None
+    web_task: asyncio.Task | None = None
+    menu_task: asyncio.Task | None = None
+
+    if settings.webapp_enabled:
+        fastapi_app = create_webapp()
+        uv_config = uvicorn.Config(
+            app=fastapi_app,
+            host=settings.webapp_host,
+            port=settings.webapp_port,
+            log_level="info",
+            access_log=False,
+        )
+        web_server = uvicorn.Server(uv_config)
+        web_task = asyncio.create_task(web_server.serve())
+        menu_task = asyncio.create_task(_sync_webapp_menu_button(bot, logger))
+        logger.info(
+            "Started FastAPI Live Dashboard server on http://%s:%d",
+            settings.webapp_host,
+            settings.webapp_port,
+        )
+
     logger.info("Starting Family Expense Bot polling...")
 
     try:
         await dp.start_polling(bot)
     finally:
+        if menu_task and not menu_task.done():
+            menu_task.cancel()
+        if web_server is not None:
+            web_server.should_exit = True
+        if web_task is not None:
+            try:
+                await asyncio.wait_for(web_task, timeout=5.0)
+            except Exception:
+                pass
         await bot.session.close()
         await engine.dispose()
 

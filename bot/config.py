@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     default_currency: str = "$"
     timezone: str = "Asia/Singapore"
 
+    webapp_enabled: bool = True
+    webapp_host: str = "0.0.0.0"
+    webapp_port: int = 8090
+    webapp_url: Optional[str] = None
+    tunnel_metrics_url: str = "http://tunnel:2000/metrics"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -127,7 +127,8 @@ if not exist "%ENV_TMP%" (
     exit /b 1
 )
 
-call :ssh_pipe "%ENV_TMP%" "bash -s -- '%REMOTE_DIR%' '%BOT_TOKEN%' '%DEFAULT_CURRENCY%' '%TIMEZONE%' '%POSTGRES_USER%' '%POSTGRES_DB%' '%BOT_PASSPHRASE%'"
+if "%WEBAPP_PORT%"=="" set WEBAPP_PORT=8090
+call :ssh_pipe "%ENV_TMP%" "bash -s -- '%REMOTE_DIR%' '%BOT_TOKEN%' '%DEFAULT_CURRENCY%' '%TIMEZONE%' '%POSTGRES_USER%' '%POSTGRES_DB%' '%BOT_PASSPHRASE%' '%WEBAPP_PORT%' '%WEBAPP_URL%'"
 set ENV_RC=%ERRORLEVEL%
 del "%ENV_TMP%" 2>nul
 if not %ENV_RC% equ 0 (

@@ -28,6 +28,16 @@ services:
       - .env
     environment:
       POSTGRES_HOST: db
+    ports:
+      - "127.0.0.1:${WEBAPP_PORT:-8090}:${WEBAPP_PORT:-8090}"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tg_expense_tunnel
+    restart: unless-stopped
+    depends_on:
+      - bot
+    command: tunnel --no-autoupdate --url http://bot:${WEBAPP_PORT:-8090} --metrics 0.0.0.0:2000
 
 volumes:
   postgres_data:

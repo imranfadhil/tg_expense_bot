@@ -116,7 +116,7 @@ async def test_db_session_middleware_unwraps_update():
         await conn.run_sync(Base.metadata.create_all)
 
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    mw = DbSessionMiddleware(session_maker)
+    mw = DbSessionMiddleware(session_maker, passphrase="")
 
     msg = Message(
         message_id=1,

@@ -8,6 +8,8 @@ from aiogram.types import Message
 
 from bot.db.models import Household, Member
 from bot.db.repo import ExpenseRepo
+from bot.keyboards.inline import dashboard_launch_kb
+from bot.webapp.auth import create_dashboard_token, resolve_public_webapp_url
 
 router = Router(name="household")
 
@@ -50,6 +52,7 @@ async def cmd_start(
         f"• <code>450 school #recurring</code> <i>(🔁 auto-logged monthly)</i>\n"
         f"• <code>1200 shopping new fridge #once</code> <i>(📌 manual once-off)</i>\n\n"
         f"📊 <b>Month-to-Month Financial Management:</b>\n"
+        f"• /dashboard — 📱 Launch interactive Live Mini App Dashboard\n"
         f"• /report — Monthly breakdown, smart pace forecast & safe daily spend\n"
         f"• /compare — Month-over-Month comparison & pace check\n"
         f"• /budget — Set monthly total or category budgets (e.g. <code>/budget groceries 600</code>)\n"
@@ -61,7 +64,17 @@ async def cmd_start(
         f"💡 <i>Tip: Have your partner or family group chat run</i> "
         f"<code>/join {household.invite_code}</code> <i>to share this ledger! ({cur})</i>"
     )
-    await message.answer(text, parse_mode="HTML")
+    base_url = await resolve_public_webapp_url()
+    kb = None
+    if base_url:
+        token = create_dashboard_token(
+            household_id=household.id,
+            member_id=member.id,
+            telegram_user_id=member.telegram_user_id,
+        )
+        is_private = bool(message.chat and message.chat.type == "private")
+        kb = dashboard_launch_kb(f"{base_url}/?token={token}", is_private_chat=is_private)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.message(Command("help"))
@@ -86,6 +99,7 @@ async def cmd_help(
         f"• <code>/budget</code> — View all budget caps & remaining balances\n"
         f"<i>You'll automatically get ⚠️ 80% and 🚨 100% alerts when logging expenses!</i>\n\n"
         f"<b>3. Track Month-to-Month Progress</b>\n"
+        f"• /dashboard — 📱 Open the interactive Telegram Mini App Live Dashboard\n"
         f"• /report — Current month summary, fixed vs variable daily avg & projected month-end total\n"
         f"• <code>/report 2026-09</code> — View a specific month\n"
         f"• /compare — Compare this month vs last month (with mid-month pace check!)\n"

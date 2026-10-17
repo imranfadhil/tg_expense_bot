@@ -97,6 +97,21 @@ class ExpenseRepo:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_household_by_id(self, household_id: int) -> Optional[Household]:
+        stmt = select(Household).where(Household.id == household_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_member_by_id(
+        self, household_id: int, member_id: int
+    ) -> Optional[Member]:
+        stmt = select(Member).where(
+            Member.household_id == household_id,
+            Member.id == member_id,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def ensure_context(
         self,
         telegram_user_id: int,
@@ -328,6 +343,30 @@ class ExpenseRepo:
         if cat is None:
             return None
         cat.monthly_budget = amount
+        await self.session.commit()
+        return cat
+
+    async def update_category(
+        self,
+        household_id: int,
+        category_id: int,
+        *,
+        display_name: Optional[str] = None,
+        monthly_budget: Optional[Decimal] = None,
+        clear_budget: bool = False,
+        is_fixed: Optional[bool] = None,
+    ) -> Optional[Category]:
+        cat = await self.get_category_by_id(household_id, category_id)
+        if cat is None:
+            return None
+        if display_name is not None and display_name.strip():
+            cat.display_name = display_name.strip()[:80]
+        if clear_budget:
+            cat.monthly_budget = None
+        elif monthly_budget is not None:
+            cat.monthly_budget = monthly_budget
+        if is_fixed is not None:
+            cat.is_fixed = is_fixed
         await self.session.commit()
         return cat
 

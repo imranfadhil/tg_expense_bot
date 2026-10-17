@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.db.models import Category, Expense
@@ -126,7 +126,43 @@ def cancel_edit_kb(expense_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def report_nav_kb(year: int, month: int) -> InlineKeyboardMarkup:
+def build_dashboard_button(
+    dashboard_url: str | None,
+    is_private_chat: bool = True,
+    text: str = "📱 Open Live Dashboard",
+) -> InlineKeyboardButton | None:
+    if not dashboard_url or not dashboard_url.strip():
+        return None
+    url = dashboard_url.strip()
+    if is_private_chat and url.startswith("https://"):
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+    if url.startswith(("https://", "http://")):
+        return InlineKeyboardButton(text=text, url=url)
+    return None
+
+
+def dashboard_launch_kb(
+    dashboard_url: str,
+    is_private_chat: bool = True,
+) -> InlineKeyboardMarkup | None:
+    btn = build_dashboard_button(
+        dashboard_url=dashboard_url,
+        is_private_chat=is_private_chat,
+        text="📱 Launch Live Dashboard",
+    )
+    if btn is None:
+        return None
+    builder = InlineKeyboardBuilder()
+    builder.row(btn)
+    return builder.as_markup()
+
+
+def report_nav_kb(
+    year: int,
+    month: int,
+    dashboard_url: str | None = None,
+    is_private_chat: bool = True,
+) -> InlineKeyboardMarkup:
     py, pm = prev_month(year, month)
     ny, nm = next_month(year, month)
     builder = InlineKeyboardBuilder()
@@ -144,10 +180,18 @@ def report_nav_kb(year: int, month: int) -> InlineKeyboardMarkup:
             callback_data=f"rep_month:{ny}:{nm}",
         ),
     )
+    dash_btn = build_dashboard_button(dashboard_url, is_private_chat=is_private_chat)
+    if dash_btn is not None:
+        builder.row(dash_btn)
     return builder.as_markup()
 
 
-def compare_nav_kb(year: int, month: int) -> InlineKeyboardMarkup:
+def compare_nav_kb(
+    year: int,
+    month: int,
+    dashboard_url: str | None = None,
+    is_private_chat: bool = True,
+) -> InlineKeyboardMarkup:
     py, pm = prev_month(year, month)
     ny, nm = next_month(year, month)
     builder = InlineKeyboardBuilder()
@@ -165,6 +209,9 @@ def compare_nav_kb(year: int, month: int) -> InlineKeyboardMarkup:
             callback_data=f"rep_cmp:{ny}:{nm}",
         ),
     )
+    dash_btn = build_dashboard_button(dashboard_url, is_private_chat=is_private_chat)
+    if dash_btn is not None:
+        builder.row(dash_btn)
     return builder.as_markup()
 
 
