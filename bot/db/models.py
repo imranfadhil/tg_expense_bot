@@ -146,6 +146,9 @@ class Expense(Base):
     is_once_off: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0", nullable=False
     )
+    is_recurring: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
     source_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     source_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     bot_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

@@ -149,3 +149,21 @@ def test_parse_amount_only():
     assert parse_amount_only("0") is None
 
 
+def test_parse_recurring_tag():
+    res1 = parse_expense_text("850 auto Maybank #recurring", DEFAULT_KEYS)
+    assert res1 is not None
+    assert res1.amount == Decimal("850.00")
+    assert res1.category_key == "auto"
+    assert res1.description == "Maybank"
+    assert res1.is_recurring is True
+    assert res1.is_once_off is True
+
+    res2 = parse_expense_text("15.90 Netflix #monthly", DEFAULT_KEYS)
+    assert res2 is not None
+    assert res2.amount == Decimal("15.90")
+    assert res2.category_key == "entertainment"
+    assert res2.description == "Netflix"
+    assert res2.is_recurring is True
+    assert res2.is_once_off is True
+
+

@@ -18,7 +18,11 @@ def is_fixed_category(cat: Optional[Category]) -> bool:
 
 
 def is_once_off_expense(exp: Expense, cat: Optional[Category]) -> bool:
-    return bool(getattr(exp, "is_once_off", False)) or is_fixed_category(cat)
+    return (
+        bool(getattr(exp, "is_once_off", False))
+        or bool(getattr(exp, "is_recurring", False))
+        or is_fixed_category(cat)
+    )
 
 
 @dataclass(frozen=True)

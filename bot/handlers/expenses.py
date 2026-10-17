@@ -36,6 +36,7 @@ class PendingEdit:
     card_message_id: int
     prompt_message_id: int | None = None
     show_back_to_recent: bool = False
+    back_target: str | None = None
     created_at: float = field(default_factory=time.monotonic)
 
 
@@ -58,14 +59,16 @@ def _clear_pending_edit(chat_id: int, user_id: int) -> PendingEdit | None:
     return _PENDING_EDITS.pop((chat_id, user_id), None)
 
 
-def _has_back_to_recent(message: Message | None) -> bool:
+def _detect_back_target(message: Message | None) -> str | None:
     if not message or not message.reply_markup or not message.reply_markup.inline_keyboard:
-        return False
+        return None
     for row in message.reply_markup.inline_keyboard:
         for btn in row:
+            if btn.callback_data == "exp_recurring_list":
+                return "recurring"
             if btn.callback_data == "exp_recent":
-                return True
-    return False
+                return "recent"
+    return None
 
 
 async def _safe_delete_msg(bot, chat_id: int, message_id: int | None) -> None:
@@ -122,7 +125,11 @@ async def _format_expense_card(
         header,
         f"📂 <b>Category:</b> {html.escape(category.display_name)}",
     ]
-    if is_once_off_expense(expense, category):
+    if expense.is_recurring:
+        lines.append(
+            "🔁 <b>Schedule:</b> Monthly Recurring <i>(auto-logged each month · counted 1x in projection)</i>"
+        )
+    elif is_once_off_expense(expense, category):
         lines.append("📌 <b>Pace Mode:</b> Fixed / Once-Off <i>(counted 1x in month projection)</i>")
     if desc_line:
         lines.append(desc_line.rstrip("\n"))
@@ -171,7 +178,7 @@ async def _log_from_text(
             await message.answer(
                 "Usage: <code>/add 45.50 groceries Giant supermarket</code>\n"
                 "Or simply send a message like <code>12.80 lunch Maxwell</code> "
-                "(add <code>#once</code> for a one-off expense)!",
+                "(add <code>#once</code> for one-off or <code>#recurring</code> for monthly recurring)!",
                 parse_mode="HTML",
             )
         return
@@ -180,7 +187,7 @@ async def _log_from_text(
     if category is None:
         category = cat_by_name.get("misc") or categories[0]
 
-    once_off_flag = parsed.is_once_off or is_fixed_category(category)
+    once_off_flag = parsed.is_once_off or parsed.is_recurring or is_fixed_category(category)
     expense = await repo.add_expense(
         household_id=household.id,
         member_id=member.id,
@@ -189,6 +196,7 @@ async def _log_from_text(
         description=parsed.description,
         spent_at=settings.now(),
         is_once_off=once_off_flag,
+        is_recurring=parsed.is_recurring,
         source_chat_id=message.chat.id if message.chat else None,
         source_message_id=message.message_id,
     )
@@ -210,6 +218,7 @@ async def _log_from_text(
             categories=categories,
             show_category_picker=show_picker,
             is_once_off=is_once_off_expense(expense, category),
+            is_recurring=expense.is_recurring,
         ),
     )
     if sent and sent.message_id:
@@ -285,11 +294,13 @@ async def _handle_pending_edit_input(
         prompt_category_selection=False,
         edited=True,
     )
+    resolved_back = pending.back_target or ("recent" if pending.show_back_to_recent else None)
     kb = expense_actions_kb(
         expense_id=updated.id,
         show_category_picker=False,
         is_once_off=is_once_off_expense(updated, updated.category),
-        show_back_to_recent=pending.show_back_to_recent,
+        is_recurring=updated.is_recurring,
+        back_target=resolved_back,
     )
     if message.bot and pending.card_message_id:
         try:
@@ -398,7 +409,8 @@ async def handle_edited_expense_message(
         # Preserve manually chosen category if the edit didn't specify a new category keyword
         category = existing.category or cat_by_name.get("misc") or categories[0]
 
-    once_off_flag = parsed.is_once_off or is_fixed_category(category)
+    new_recurring = parsed.is_recurring or existing.is_recurring
+    once_off_flag = parsed.is_once_off or new_recurring or is_fixed_category(category)
     updated = await repo.update_expense(
         household_id=household.id,
         expense_id=existing.id,
@@ -406,6 +418,7 @@ async def handle_edited_expense_message(
         category_id=category.id,
         description=parsed.description,
         is_once_off=once_off_flag,
+        is_recurring=new_recurring,
     )
     if updated is None or updated.category is None:
         return
@@ -424,6 +437,7 @@ async def handle_edited_expense_message(
         categories=categories,
         show_category_picker=False,
         is_once_off=is_once_off_expense(updated, updated.category),
+        is_recurring=updated.is_recurring,
     )
 
     if updated.bot_message_id and message.bot:
@@ -476,7 +490,46 @@ async def cb_open_expense(
             expense_id=expense.id,
             show_category_picker=False,
             is_once_off=is_once_off_expense(expense, expense.category),
-            show_back_to_recent=True,
+            is_recurring=expense.is_recurring,
+            back_target="recent",
+        ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("exp_openrec:"))
+async def cb_open_recurring_expense(
+    callback: CallbackQuery,
+    repo: ExpenseRepo,
+    household: Household,
+) -> None:
+    if not callback.data or not callback.message:
+        await callback.answer()
+        return
+
+    expense_id = int(callback.data.split(":")[1])
+    expense = await repo.get_expense_by_id(household.id, expense_id)
+    if expense is None or expense.category is None:
+        await callback.answer("Expense no longer exists.", show_alert=True)
+        return
+
+    card_text = await _format_expense_card(
+        repo=repo,
+        household=household,
+        expense=expense,
+        category=expense.category,
+        member=expense.member,
+        prompt_category_selection=False,
+    )
+    await callback.message.edit_text(
+        card_text,
+        parse_mode="HTML",
+        reply_markup=expense_actions_kb(
+            expense_id=expense.id,
+            show_category_picker=False,
+            is_once_off=is_once_off_expense(expense, expense.category),
+            is_recurring=expense.is_recurring,
+            back_target="recurring",
         ),
     )
     await callback.answer()
@@ -509,13 +562,15 @@ async def cb_edit_amount(
         parse_mode="HTML",
         reply_markup=cancel_edit_kb(expense.id),
     )
+    back_target = _detect_back_target(callback.message)
     _PENDING_EDITS[(callback.message.chat.id, callback.from_user.id)] = PendingEdit(
         expense_id=expense.id,
         field="amount",
         card_chat_id=callback.message.chat.id,
         card_message_id=callback.message.message_id,
         prompt_message_id=prompt_msg.message_id if prompt_msg else None,
-        show_back_to_recent=_has_back_to_recent(callback.message),
+        show_back_to_recent=(back_target == "recent"),
+        back_target=back_target,
     )
     await callback.answer()
 
@@ -547,13 +602,15 @@ async def cb_edit_note(
         parse_mode="HTML",
         reply_markup=cancel_edit_kb(expense.id),
     )
+    back_target = _detect_back_target(callback.message)
     _PENDING_EDITS[(callback.message.chat.id, callback.from_user.id)] = PendingEdit(
         expense_id=expense.id,
         field="note",
         card_chat_id=callback.message.chat.id,
         card_message_id=callback.message.message_id,
         prompt_message_id=prompt_msg.message_id if prompt_msg else None,
-        show_back_to_recent=_has_back_to_recent(callback.message),
+        show_back_to_recent=(back_target == "recent"),
+        back_target=back_target,
     )
     await callback.answer()
 
@@ -593,7 +650,8 @@ async def cb_pick_category(
             categories=categories,
             show_category_picker=True,
             is_once_off=is_once_off_expense(expense, expense.category),
-            show_back_to_recent=_has_back_to_recent(callback.message),
+            is_recurring=expense.is_recurring,
+            back_target=_detect_back_target(callback.message),
         )
     )
     await callback.answer("Select a category:")
@@ -611,7 +669,7 @@ async def cb_set_category(
 
     parts = callback.data.split(":")
     expense_id, new_cat_id = int(parts[1]), int(parts[2])
-    back_to_recent = _has_back_to_recent(callback.message)
+    back_target = _detect_back_target(callback.message)
     updated = await repo.update_expense_category(household.id, expense_id, new_cat_id)
     if updated is None or updated.category is None:
         await callback.answer("Expense or category not found.", show_alert=True)
@@ -633,7 +691,8 @@ async def cb_set_category(
             expense_id=updated.id,
             show_category_picker=False,
             is_once_off=is_once_off_expense(updated, updated.category),
-            show_back_to_recent=back_to_recent,
+            is_recurring=updated.is_recurring,
+            back_target=back_target,
         ),
     )
     await callback.answer(f"Category updated to {updated.category.display_name}")
@@ -650,10 +709,17 @@ async def cb_toggle_once_off(
         return
 
     expense_id = int(callback.data.split(":")[1])
-    back_to_recent = _has_back_to_recent(callback.message)
+    back_target = _detect_back_target(callback.message)
     expense = await repo.get_expense_by_id(household.id, expense_id)
     if expense is None or expense.category is None:
         await callback.answer("Expense no longer exists.", show_alert=True)
+        return
+
+    if expense.is_recurring:
+        await callback.answer(
+            "🔁 Monthly recurring expenses are always counted 1x in month-end projections.",
+            show_alert=True,
+        )
         return
 
     if is_fixed_category(expense.category):
@@ -684,10 +750,56 @@ async def cb_toggle_once_off(
             expense_id=updated.id,
             show_category_picker=False,
             is_once_off=is_once_off_expense(updated, updated.category),
-            show_back_to_recent=back_to_recent,
+            is_recurring=updated.is_recurring,
+            back_target=back_target,
         ),
     )
     status_str = "Marked as Once-Off (counted 1x in projection)" if updated.is_once_off else "Set to regular daily variable spend"
+    await callback.answer(status_str)
+
+
+@router.callback_query(F.data.startswith("exp_rec:"))
+async def cb_toggle_recurring(
+    callback: CallbackQuery,
+    repo: ExpenseRepo,
+    household: Household,
+) -> None:
+    if not callback.data or not callback.message:
+        await callback.answer()
+        return
+
+    expense_id = int(callback.data.split(":")[1])
+    back_target = _detect_back_target(callback.message)
+    updated = await repo.toggle_expense_recurring(household.id, expense_id)
+    if updated is None or updated.category is None:
+        await callback.answer("Expense no longer exists.", show_alert=True)
+        return
+
+    card_text = await _format_expense_card(
+        repo=repo,
+        household=household,
+        expense=updated,
+        category=updated.category,
+        member=updated.member,
+        prompt_category_selection=False,
+        edited=True,
+    )
+    await callback.message.edit_text(
+        card_text,
+        parse_mode="HTML",
+        reply_markup=expense_actions_kb(
+            expense_id=updated.id,
+            show_category_picker=False,
+            is_once_off=is_once_off_expense(updated, updated.category),
+            is_recurring=updated.is_recurring,
+            back_target=back_target,
+        ),
+    )
+    status_str = (
+        "🔁 Set as Monthly Recurring (auto-logged each month)"
+        if updated.is_recurring
+        else "Stopped monthly recurring for this entry"
+    )
     await callback.answer(status_str)
 
 
@@ -702,7 +814,7 @@ async def cb_delete_expense(
         return
 
     expense_id = int(callback.data.split(":")[1])
-    back_to_recent = _has_back_to_recent(callback.message)
+    back_target = _detect_back_target(callback.message)
     exp = await repo.get_expense_by_id(household.id, expense_id)
     if exp is None:
         await callback.answer("Expense already deleted.", show_alert=True)
@@ -715,12 +827,21 @@ async def cb_delete_expense(
 
     await repo.delete_expense(household.id, expense_id)
     reply_markup = None
-    if back_to_recent:
+    if back_target == "recent":
         builder = InlineKeyboardBuilder()
         builder.row(
             InlineKeyboardButton(
                 text="⬅️ Back to Recent",
                 callback_data="exp_recent",
+            )
+        )
+        reply_markup = builder.as_markup()
+    elif back_target == "recurring":
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(
+                text="⬅️ Back to Recurring",
+                callback_data="exp_recurring_list",
             )
         )
         reply_markup = builder.as_markup()

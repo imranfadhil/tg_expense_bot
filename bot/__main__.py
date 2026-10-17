@@ -17,6 +17,7 @@ async def _set_bot_commands(bot: Bot) -> None:
         BotCommand(command="report", description="📊 Monthly summary, pace forecast & breakdown"),
         BotCommand(command="compare", description="📈 Month-over-Month comparison & pace check"),
         BotCommand(command="budget", description="🎯 View or set monthly & category budgets"),
+        BotCommand(command="recurring", description="🔁 View, edit & manage monthly recurring expenses"),
         BotCommand(command="recent", description="🧾 View, edit & delete recent expenses"),
         BotCommand(command="categories", description="🗂️ View or add custom categories"),
         BotCommand(command="export", description="📥 Export monthly expenses to CSV"),

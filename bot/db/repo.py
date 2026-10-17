@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import secrets
 import string
 from datetime import datetime
@@ -149,6 +150,7 @@ class ExpenseRepo:
                 if member.display_name != display_name:
                     member.display_name = display_name
             await self.session.commit()
+            await self.sync_recurring_expenses(household.id)
             return household, member, is_new
 
         # Private chat
@@ -156,6 +158,7 @@ class ExpenseRepo:
             if member.display_name != display_name:
                 member.display_name = display_name
                 await self.session.commit()
+            await self.sync_recurring_expenses(member.household.id)
             return member.household, member, False
 
         household = await self.create_household(name=f"{display_name}'s Family Ledger")
@@ -337,6 +340,7 @@ class ExpenseRepo:
         description: str = "",
         spent_at: Optional[datetime] = None,
         is_once_off: bool = False,
+        is_recurring: bool = False,
         source_chat_id: Optional[int] = None,
         source_message_id: Optional[int] = None,
         bot_message_id: Optional[int] = None,
@@ -347,7 +351,8 @@ class ExpenseRepo:
             category_id=category_id,
             amount=amount,
             description=description.strip(),
-            is_once_off=is_once_off,
+            is_once_off=bool(is_once_off or is_recurring),
+            is_recurring=bool(is_recurring),
             source_chat_id=source_chat_id,
             source_message_id=source_message_id,
             bot_message_id=bot_message_id,
@@ -425,6 +430,7 @@ class ExpenseRepo:
         description: Optional[str] = None,
         category_id: Optional[int] = None,
         is_once_off: Optional[bool] = None,
+        is_recurring: Optional[bool] = None,
     ) -> Optional[Expense]:
         expense = await self.get_expense_by_id(household_id, expense_id)
         if expense is None:
@@ -440,6 +446,10 @@ class ExpenseRepo:
             expense.description = description.strip()[:255]
         if is_once_off is not None:
             expense.is_once_off = is_once_off
+        if is_recurring is not None:
+            expense.is_recurring = is_recurring
+            if is_recurring:
+                expense.is_once_off = True
         await self.session.commit()
         return await self.get_expense_by_id(household_id, expense_id)
 
@@ -459,6 +469,98 @@ class ExpenseRepo:
         expense.is_once_off = not bool(expense.is_once_off)
         await self.session.commit()
         return await self.get_expense_by_id(household_id, expense_id)
+
+    async def toggle_expense_recurring(
+        self, household_id: int, expense_id: int
+    ) -> Optional[Expense]:
+        expense = await self.get_expense_by_id(household_id, expense_id)
+        if expense is None:
+            return None
+        expense.is_recurring = not bool(expense.is_recurring)
+        if expense.is_recurring:
+            expense.is_once_off = True
+        await self.session.commit()
+        return await self.get_expense_by_id(household_id, expense_id)
+
+    async def get_recurring_expenses(
+        self, household_id: int
+    ) -> Sequence[Expense]:
+        stmt = (
+            select(Expense)
+            .options(selectinload(Expense.category), selectinload(Expense.member))
+            .where(
+                Expense.household_id == household_id,
+                Expense.is_recurring == True,  # noqa: E712
+            )
+            .order_by(desc(Expense.spent_at), desc(Expense.id))
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    async def sync_recurring_expenses(
+        self, household_id: int, now: Optional[datetime] = None
+    ) -> list[Expense]:
+        """
+        Roll any active recurring expenses from past months into the current month
+        (creating monthly entries up to the current month and moving the active
+        is_recurring=True pointer to the latest month's entry).
+        """
+        now_local = (now or settings.now()).astimezone(settings.tz)
+        target_ym = (now_local.year, now_local.month)
+
+        stmt = select(Expense).where(
+            Expense.household_id == household_id,
+            Expense.is_recurring == True,  # noqa: E712
+        )
+        result = await self.session.execute(stmt)
+        active_recurring = result.scalars().all()
+
+        spawned: list[Expense] = []
+        for exp in active_recurring:
+            exp_local = exp.spent_at.astimezone(settings.tz)
+            cy, cm = exp_local.year, exp_local.month
+            if (cy, cm) >= target_ym:
+                continue
+
+            # Historical entry keeps its data in its original month, no longer active template
+            exp.is_recurring = False
+            exp.is_once_off = True
+
+            steps = 0
+            while (cy, cm) < target_ym and steps < 12:
+                steps += 1
+                if cm == 12:
+                    cy, cm = cy + 1, 1
+                else:
+                    cm += 1
+                max_day = calendar.monthrange(cy, cm)[1]
+                day = min(exp_local.day, max_day)
+                spawn_dt = datetime(
+                    cy,
+                    cm,
+                    day,
+                    exp_local.hour,
+                    exp_local.minute,
+                    exp_local.second,
+                    tzinfo=settings.tz,
+                )
+                is_current_month = (cy, cm) == target_ym or steps == 12
+                new_exp = Expense(
+                    household_id=household_id,
+                    member_id=exp.member_id,
+                    category_id=exp.category_id,
+                    amount=exp.amount,
+                    description=exp.description,
+                    is_once_off=True,
+                    is_recurring=is_current_month,
+                    spent_at=spawn_dt,
+                )
+                self.session.add(new_exp)
+                spawned.append(new_exp)
+
+        if spawned:
+            await self.session.commit()
+        return spawned
 
     async def delete_expense(self, household_id: int, expense_id: int) -> bool:
         expense = await self.get_expense_by_id(household_id, expense_id)

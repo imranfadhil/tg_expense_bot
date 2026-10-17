@@ -329,6 +329,46 @@ async def test_expense_editing_via_repo_edited_message_and_interactive_flow():
         assert reloaded3 is not None
         assert reloaded3.description == "FairPrice Finest"
 
+        # 5. Simulate #recurring monthly carry-over and /recurring management
+        tz = ZoneInfo("Asia/Singapore")
+        oct_dt = datetime(2026, 10, 5, 9, 0, tzinfo=tz)
+        rec_exp = await repo.add_expense(
+            household_id=hh.id,
+            member_id=member.id,
+            category_id=dining.id,
+            amount=Decimal("15.90"),
+            description="Netflix",
+            spent_at=oct_dt,
+            is_recurring=True,
+        )
+        assert rec_exp.is_recurring is True
+        assert rec_exp.is_once_off is True
+
+        active_oct = await repo.get_recurring_expenses(hh.id)
+        assert len(active_oct) == 1
+        assert active_oct[0].id == rec_exp.id
+
+        # Advance to November 2026 -> sync_recurring_expenses creates Nov entry and retires Oct template flag
+        nov_now = datetime(2026, 11, 2, 10, 0, tzinfo=tz)
+        spawned = await repo.sync_recurring_expenses(hh.id, now=nov_now)
+        assert len(spawned) == 1
+        nov_exp = spawned[0]
+        assert nov_exp.amount == Decimal("15.90")
+        assert nov_exp.description == "Netflix"
+        assert nov_exp.is_recurring is True
+        assert nov_exp.spent_at.astimezone(tz).month == 11
+
+        # Oct entry remains in Oct history but is_recurring is now False
+        oct_reloaded = await repo.get_expense_by_id(hh.id, rec_exp.id)
+        assert oct_reloaded is not None
+        assert oct_reloaded.is_recurring is False
+        assert oct_reloaded.is_once_off is True
+
+        # Active /recurring list now returns the Nov entry
+        active_nov = await repo.get_recurring_expenses(hh.id)
+        assert len(active_nov) == 1
+        assert active_nov[0].id == nov_exp.id
+
     await engine.dispose()
 
 

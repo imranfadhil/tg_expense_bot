@@ -42,6 +42,10 @@ async def init_db() -> None:
                 sync_conn.execute(
                     text("ALTER TABLE expenses ADD COLUMN is_once_off BOOLEAN NOT NULL DEFAULT FALSE")
                 )
+            if "is_recurring" not in exp_cols:
+                sync_conn.execute(
+                    text("ALTER TABLE expenses ADD COLUMN is_recurring BOOLEAN NOT NULL DEFAULT FALSE")
+                )
             if "source_chat_id" not in exp_cols:
                 sync_conn.execute(
                     text("ALTER TABLE expenses ADD COLUMN source_chat_id BIGINT NULL")

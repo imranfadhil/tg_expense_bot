@@ -359,6 +359,27 @@ _ONCE_OFF_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Explicit recurring tags users can include in an expense message
+_RECURRING_TOKEN_SET: frozenset[str] = frozenset(
+    {
+        "#recurring",
+        "#recur",
+        "#monthly",
+        "#repeat",
+        "!recurring",
+        "!recur",
+        "!monthly",
+        "[recurring]",
+        "(recurring)",
+    }
+)
+
+_RECURRING_PHRASE_RE = re.compile(
+    r"(?:^|\s)(?:#recurr?(?:ing)?|#monthly|#repeat|!recurr?(?:ing)?|!monthly|"
+    r"\[recurring\]|\(recurring\))(?=\s|$)",
+    re.IGNORECASE,
+)
+
 # Matches currency prefix/suffix and number like:
 # "$45.50", "RM45.50", "RM 45.50", "45.50", "SGD 45.50", "45,50", "1,250.00"
 _LEADING_AMOUNT_RE = re.compile(
@@ -389,6 +410,7 @@ class ParsedExpense:
     description: str
     matched_explicitly: bool
     is_once_off: bool = False
+    is_recurring: bool = False
 
 
 def _normalize_decimal(amount_int: str, decimals: Optional[str]) -> Optional[Decimal]:
@@ -411,25 +433,36 @@ def _clean_token(word: str) -> str:
     return re.sub(r"[^a-z0-9_-]", "", word.lower())
 
 
-def _extract_once_off_flag(text: str) -> tuple[str, bool]:
+def _extract_expense_flags(text: str) -> tuple[str, bool, bool]:
     """
-    Detect and strip manual once-off markers (e.g. '#once', 'once-off', 'one-off', '#fixed')
-    from raw input text. Returns (cleaned_text, is_once_off).
+    Detect and strip manual once-off markers (e.g. '#once', 'once-off', '#fixed')
+    and recurring markers (e.g. '#recurring', '#monthly') from raw input text.
+    Returns (cleaned_text, is_once_off, is_recurring).
     """
     is_once_off = False
+    is_recurring = False
     tokens = text.split()
     kept_tokens: list[str] = []
     for tok in tokens:
-        if tok.lower() in _ONCE_OFF_TOKEN_SET:
+        low = tok.lower()
+        if low in _RECURRING_TOKEN_SET:
+            is_recurring = True
+            is_once_off = True
+        elif low in _ONCE_OFF_TOKEN_SET:
             is_once_off = True
         else:
             kept_tokens.append(tok)
     joined = " ".join(kept_tokens)
+    if _RECURRING_PHRASE_RE.search(joined):
+        is_recurring = True
+        is_once_off = True
+        joined = _RECURRING_PHRASE_RE.sub(" ", joined)
+        joined = " ".join(joined.split())
     if _ONCE_OFF_PHRASE_RE.search(joined):
         is_once_off = True
         joined = _ONCE_OFF_PHRASE_RE.sub(" ", joined)
         joined = " ".join(joined.split())
-    return joined.strip(), is_once_off
+    return joined.strip(), is_once_off, is_recurring
 
 
 def _match_phrase_alias(
@@ -469,7 +502,7 @@ def parse_expense_text(
     Parse natural expense text such as:
       - "45.50 groceries Giant supermarket"
       - "$12.80 lunch Maxwell"
-      - "850 car loan Maybank"
+      - "850 car loan Maybank #recurring"
       - "1200 shopping new fridge #once"
       - "lunch 12.50"
       - "18.00"
@@ -482,7 +515,7 @@ def parse_expense_text(
     if "\n" in stripped:
         return None
 
-    stripped, is_once_off = _extract_once_off_flag(stripped)
+    stripped, is_once_off, is_recurring = _extract_expense_flags(stripped)
     if not stripped:
         return None
 
@@ -500,6 +533,7 @@ def parse_expense_text(
             description="",
             matched_explicitly=False,
             is_once_off=is_once_off,
+            is_recurring=is_recurring,
         )
 
     # 2. Try leading amount (e.g. "45.50 groceries Giant") or trailing amount (e.g. "lunch 12.50")
@@ -522,6 +556,7 @@ def parse_expense_text(
             description="",
             matched_explicitly=False,
             is_once_off=is_once_off,
+            is_recurring=is_recurring,
         )
 
     cleaned_tokens = [_clean_token(t) for t in tokens]
@@ -537,6 +572,7 @@ def parse_expense_text(
             description=rest,
             matched_explicitly=True,
             is_once_off=is_once_off,
+            is_recurring=is_recurring,
         )
 
     # Check if first word is an exact household category name
@@ -548,6 +584,7 @@ def parse_expense_text(
             description=desc,
             matched_explicitly=True,
             is_once_off=is_once_off,
+            is_recurring=is_recurring,
         )
 
     # Check if first word matches a canonical category alias
@@ -564,6 +601,7 @@ def parse_expense_text(
                 description=desc,
                 matched_explicitly=True,
                 is_once_off=is_once_off,
+                is_recurring=is_recurring,
             )
 
     # Check if a multi-word phrase alias appears later in the description
@@ -575,6 +613,7 @@ def parse_expense_text(
             description=rest,
             matched_explicitly=True,
             is_once_off=is_once_off,
+            is_recurring=is_recurring,
         )
 
     # Otherwise scan remaining tokens for any category or alias keyword
@@ -586,6 +625,7 @@ def parse_expense_text(
                 description=rest,
                 matched_explicitly=True,
                 is_once_off=is_once_off,
+                is_recurring=is_recurring,
             )
         if cleaned in CATEGORY_ALIASES:
             mapped_cat = CATEGORY_ALIASES[cleaned]
@@ -596,6 +636,7 @@ def parse_expense_text(
                     description=rest,
                     matched_explicitly=True,
                     is_once_off=is_once_off,
+                    is_recurring=is_recurring,
                 )
 
     # Fallback to 'misc' while keeping the full note
@@ -606,6 +647,7 @@ def parse_expense_text(
         description=rest,
         matched_explicitly=False,
         is_once_off=is_once_off,
+        is_recurring=is_recurring,
     )
 
 
