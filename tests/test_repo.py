@@ -93,3 +93,40 @@ async def test_repo_household_invite_and_expense_lifecycle():
 
     await engine.dispose()
 
+
+@pytest.mark.asyncio
+async def test_db_session_middleware_unwraps_update():
+    from aiogram.types import Chat, Message, Update, User
+    from bot.middlewares.db import DbSessionMiddleware
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    mw = DbSessionMiddleware(session_maker)
+
+    msg = Message(
+        message_id=1,
+        date=datetime.now(),
+        chat=Chat(id=555, type="private"),
+        from_user=User(id=555, is_bot=False, first_name="TestUser"),
+        text="/help",
+    )
+    upd = Update(update_id=100, message=msg)
+
+    captured_data = {}
+
+    async def dummy_handler(event, data):
+        captured_data.update(data)
+        return "ok"
+
+    res = await mw(dummy_handler, upd, {})
+    assert res == "ok"
+    assert "household" in captured_data
+    assert "member" in captured_data
+    assert captured_data["member"].display_name == "TestUser"
+
+    await engine.dispose()
+
+
