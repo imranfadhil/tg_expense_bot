@@ -337,6 +337,9 @@ class ExpenseRepo:
         description: str = "",
         spent_at: Optional[datetime] = None,
         is_once_off: bool = False,
+        source_chat_id: Optional[int] = None,
+        source_message_id: Optional[int] = None,
+        bot_message_id: Optional[int] = None,
     ) -> Expense:
         expense = Expense(
             household_id=household_id,
@@ -345,12 +348,59 @@ class ExpenseRepo:
             amount=amount,
             description=description.strip(),
             is_once_off=is_once_off,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
+            bot_message_id=bot_message_id,
             spent_at=spent_at or settings.now(),
         )
         self.session.add(expense)
         await self.session.commit()
         await self.session.refresh(expense)
         return expense
+
+    async def set_expense_bot_message_id(
+        self, household_id: int, expense_id: int, bot_message_id: int
+    ) -> Optional[Expense]:
+        expense = await self.get_expense_by_id(household_id, expense_id)
+        if expense is None:
+            return None
+        expense.bot_message_id = bot_message_id
+        await self.session.commit()
+        return expense
+
+    async def get_expense_by_source_message(
+        self, household_id: int, source_chat_id: int, source_message_id: int
+    ) -> Optional[Expense]:
+        stmt = (
+            select(Expense)
+            .options(selectinload(Expense.category), selectinload(Expense.member))
+            .where(
+                Expense.household_id == household_id,
+                Expense.source_chat_id == source_chat_id,
+                Expense.source_message_id == source_message_id,
+            )
+            .order_by(Expense.id.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_expense_by_bot_message(
+        self, household_id: int, source_chat_id: int, bot_message_id: int
+    ) -> Optional[Expense]:
+        stmt = (
+            select(Expense)
+            .options(selectinload(Expense.category), selectinload(Expense.member))
+            .where(
+                Expense.household_id == household_id,
+                Expense.source_chat_id == source_chat_id,
+                Expense.bot_message_id == bot_message_id,
+            )
+            .order_by(Expense.id.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_expense_by_id(
         self, household_id: int, expense_id: int
@@ -366,18 +416,39 @@ class ExpenseRepo:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_expense_category(
-        self, household_id: int, expense_id: int, new_category_id: int
+    async def update_expense(
+        self,
+        household_id: int,
+        expense_id: int,
+        *,
+        amount: Optional[Decimal] = None,
+        description: Optional[str] = None,
+        category_id: Optional[int] = None,
+        is_once_off: Optional[bool] = None,
     ) -> Optional[Expense]:
         expense = await self.get_expense_by_id(household_id, expense_id)
         if expense is None:
             return None
-        cat = await self.get_category_by_id(household_id, new_category_id)
-        if cat is None:
-            return None
-        expense.category_id = cat.id
+        if category_id is not None:
+            cat = await self.get_category_by_id(household_id, category_id)
+            if cat is None:
+                return None
+            expense.category_id = cat.id
+        if amount is not None:
+            expense.amount = amount
+        if description is not None:
+            expense.description = description.strip()[:255]
+        if is_once_off is not None:
+            expense.is_once_off = is_once_off
         await self.session.commit()
         return await self.get_expense_by_id(household_id, expense_id)
+
+    async def update_expense_category(
+        self, household_id: int, expense_id: int, new_category_id: int
+    ) -> Optional[Expense]:
+        return await self.update_expense(
+            household_id, expense_id, category_id=new_category_id
+        )
 
     async def toggle_expense_once_off(
         self, household_id: int, expense_id: int

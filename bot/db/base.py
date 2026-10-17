@@ -42,6 +42,18 @@ async def init_db() -> None:
                 sync_conn.execute(
                     text("ALTER TABLE expenses ADD COLUMN is_once_off BOOLEAN NOT NULL DEFAULT FALSE")
                 )
+            if "source_chat_id" not in exp_cols:
+                sync_conn.execute(
+                    text("ALTER TABLE expenses ADD COLUMN source_chat_id BIGINT NULL")
+                )
+            if "source_message_id" not in exp_cols:
+                sync_conn.execute(
+                    text("ALTER TABLE expenses ADD COLUMN source_message_id BIGINT NULL")
+                )
+            if "bot_message_id" not in exp_cols:
+                sync_conn.execute(
+                    text("ALTER TABLE expenses ADD COLUMN bot_message_id BIGINT NULL")
+                )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

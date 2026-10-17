@@ -7,7 +7,7 @@ import re
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 
 from bot.config import settings
 from bot.db.models import Household
@@ -158,19 +158,16 @@ async def cb_report_compare(
     await callback.answer()
 
 
-@router.message(Command("recent", "history"))
-async def cmd_recent(
-    message: Message,
+async def render_recent_expenses(
     repo: ExpenseRepo,
     household: Household,
-) -> None:
+) -> tuple[str, InlineKeyboardMarkup | None]:
     expenses = await repo.get_recent_expenses(household.id, limit=10)
     if not expenses:
-        await message.answer(
+        return (
             "📭 <i>No expenses logged yet. Send e.g. <code>25.50 groceries NTUC</code> to log your first expense!</i>",
-            parse_mode="HTML",
+            None,
         )
-        return
 
     cur = html.escape(household.currency)
     lines = ["🧾 <b>Recent Family Expenses (Last 10):</b>", ""]
@@ -190,12 +187,40 @@ async def cmd_recent(
         )
 
     lines.append("")
-    lines.append("<i>Tap a button below to delete one of the latest 5 entries:</i>")
+    lines.append("<i>Tap any entry below to edit or delete it:</i>")
+    return "\n".join(lines), recent_expenses_kb(expenses, household.currency)
+
+
+@router.message(Command("recent", "history"))
+async def cmd_recent(
+    message: Message,
+    repo: ExpenseRepo,
+    household: Household,
+) -> None:
+    text, kb = await render_recent_expenses(repo, household)
     await message.answer(
-        "\n".join(lines),
+        text,
         parse_mode="HTML",
-        reply_markup=recent_expenses_kb(expenses, household.currency),
+        reply_markup=kb,
     )
+
+
+@router.callback_query(F.data == "exp_recent")
+async def cb_recent(
+    callback: CallbackQuery,
+    repo: ExpenseRepo,
+    household: Household,
+) -> None:
+    if not callback.message:
+        await callback.answer()
+        return
+    text, kb = await render_recent_expenses(repo, household)
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+    await callback.answer()
 
 
 @router.message(Command("export", "csv"))

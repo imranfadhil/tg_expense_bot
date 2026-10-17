@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from bot.services.parser import parse_expense_text
+from bot.services.parser import parse_amount_only, parse_expense_text
 
 DEFAULT_KEYS = [
     "groceries",
@@ -139,5 +139,13 @@ def test_ignore_non_expense_messages():
     assert parse_expense_text("Hello family, what's for dinner?", DEFAULT_KEYS) is None
     assert parse_expense_text("/report", DEFAULT_KEYS) is None
     assert parse_expense_text("0 groceries", DEFAULT_KEYS) is None
+
+
+def test_parse_amount_only():
+    assert parse_amount_only("24.50") == Decimal("24.50")
+    assert parse_amount_only("$1,250.00") == Decimal("1250.00")
+    assert parse_amount_only("RM 18.90") == Decimal("18.90")
+    assert parse_amount_only("24.50 lunch") is None
+    assert parse_amount_only("0") is None
 
 

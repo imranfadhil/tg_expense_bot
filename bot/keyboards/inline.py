@@ -14,6 +14,7 @@ def expense_actions_kb(
     categories: Sequence[Category] = (),
     show_category_picker: bool = False,
     is_once_off: bool = False,
+    show_back_to_recent: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     once_label = "📌 Once-Off ✅" if is_once_off else "📌 Once-Off"
@@ -27,6 +28,16 @@ def expense_actions_kb(
         builder.adjust(2)
         builder.row(
             InlineKeyboardButton(
+                text="💰 Amount",
+                callback_data=f"exp_editamt:{expense_id}",
+            ),
+            InlineKeyboardButton(
+                text="📝 Note",
+                callback_data=f"exp_editnote:{expense_id}",
+            ),
+        )
+        builder.row(
+            InlineKeyboardButton(
                 text=once_label,
                 callback_data=f"exp_once:{expense_id}",
             ),
@@ -35,13 +46,30 @@ def expense_actions_kb(
                 callback_data=f"exp_del:{expense_id}",
             ),
         )
+        if show_back_to_recent:
+            builder.row(
+                InlineKeyboardButton(
+                    text="⬅️ Back to Recent",
+                    callback_data="exp_recent",
+                )
+            )
         return builder.as_markup()
 
     builder.row(
         InlineKeyboardButton(
-            text="✏️ Category",
+            text="📂 Category",
             callback_data=f"exp_pickcat:{expense_id}",
         ),
+        InlineKeyboardButton(
+            text="💰 Amount",
+            callback_data=f"exp_editamt:{expense_id}",
+        ),
+        InlineKeyboardButton(
+            text="📝 Note",
+            callback_data=f"exp_editnote:{expense_id}",
+        ),
+    )
+    builder.row(
         InlineKeyboardButton(
             text=once_label,
             callback_data=f"exp_once:{expense_id}",
@@ -50,6 +78,24 @@ def expense_actions_kb(
             text="🗑️ Undo",
             callback_data=f"exp_del:{expense_id}",
         ),
+    )
+    if show_back_to_recent:
+        builder.row(
+            InlineKeyboardButton(
+                text="⬅️ Back to Recent",
+                callback_data="exp_recent",
+            )
+        )
+    return builder.as_markup()
+
+
+def cancel_edit_kb(expense_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="✖️ Cancel",
+            callback_data=f"exp_canceledit:{expense_id}",
+        )
     )
     return builder.as_markup()
 
@@ -101,11 +147,15 @@ def recent_expenses_kb(
     currency: str,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for exp in expenses[:5]:
+    for exp in expenses[:10]:
         cat_label = exp.category.display_name.split()[0] if exp.category else "📦"
+        short_desc = ""
+        if exp.description:
+            trimmed = exp.description.strip()
+            short_desc = f" · {trimmed[:10]}…" if len(trimmed) > 11 else f" · {trimmed}"
         builder.button(
-            text=f"🗑️ {cat_label} {currency}{exp.amount:.2f}",
-            callback_data=f"exp_del:{exp.id}",
+            text=f"✏️ {cat_label} {currency}{exp.amount:.2f}{short_desc}",
+            callback_data=f"exp_open:{exp.id}",
         )
     builder.adjust(2)
     return builder.as_markup()

@@ -123,6 +123,12 @@ class Expense(Base):
     __tablename__ = "expenses"
     __table_args__ = (
         Index("ix_expenses_household_spent_at", "household_id", "spent_at"),
+        Index(
+            "ix_expenses_source_msg",
+            "household_id",
+            "source_chat_id",
+            "source_message_id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -140,6 +146,9 @@ class Expense(Base):
     is_once_off: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0", nullable=False
     )
+    source_chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    source_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    bot_message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     spent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )

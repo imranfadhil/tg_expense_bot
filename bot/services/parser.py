@@ -451,6 +451,16 @@ def _match_phrase_alias(
     return None
 
 
+def parse_amount_only(text: str) -> Optional[Decimal]:
+    """Parse a standalone currency/numeric amount like '18.50', '$18.50', or '1,200'."""
+    if not text:
+        return None
+    m = _ONLY_AMOUNT_RE.match(text.strip())
+    if not m:
+        return None
+    return _normalize_decimal(m.group("amount"), m.group("decimals"))
+
+
 def parse_expense_text(
     text: str,
     available_category_keys: Optional[Iterable[str]] = None,

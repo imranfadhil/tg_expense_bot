@@ -218,4 +218,118 @@ async def test_passphrase_protection_blocks_strangers_and_unlocks_on_valid_pin()
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_expense_editing_via_repo_edited_message_and_interactive_flow():
+    from unittest.mock import AsyncMock, MagicMock
+    from bot.handlers.expenses import (
+        _PENDING_EDITS,
+        PendingEdit,
+        handle_edited_expense_message,
+        handle_quick_text_expense,
+    )
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_maker() as session:
+        repo = ExpenseRepo(session)
+        hh, member, _ = await repo.ensure_context(
+            telegram_user_id=2001,
+            display_name="Alice",
+            chat_id=2001,
+            chat_type="private",
+        )
+        categories = await repo.get_categories(hh.id)
+        dining = next(c for c in categories if c.name == "dining")
+        groceries = next(c for c in categories if c.name == "groceries")
+
+        # 1. Create an expense with source_chat_id and source_message_id
+        exp = await repo.add_expense(
+            household_id=hh.id,
+            member_id=member.id,
+            category_id=dining.id,
+            amount=Decimal("12.80"),
+            description="lunch Maxwell",
+            source_chat_id=2001,
+            source_message_id=501,
+        )
+        await repo.set_expense_bot_message_id(hh.id, exp.id, 502)
+
+        found = await repo.get_expense_by_source_message(hh.id, 2001, 501)
+        assert found is not None
+        assert found.id == exp.id
+        assert found.bot_message_id == 502
+
+        # 2. Simulate #1: User edits their original Telegram message ("15.50 groceries NTUC")
+        mock_bot = MagicMock()
+        mock_bot.edit_message_text = AsyncMock()
+        mock_bot.delete_message = AsyncMock()
+
+        edited_msg = MagicMock()
+        edited_msg.text = "15.50 groceries NTUC"
+        edited_msg.chat.id = 2001
+        edited_msg.message_id = 501
+        edited_msg.bot = mock_bot
+        edited_msg.answer = AsyncMock()
+
+        await handle_edited_expense_message(edited_msg, repo, hh)
+
+        reloaded = await repo.get_expense_by_id(hh.id, exp.id)
+        assert reloaded is not None
+        assert reloaded.amount == Decimal("15.50")
+        assert reloaded.category_id == groceries.id
+        assert reloaded.description == "NTUC"
+        mock_bot.edit_message_text.assert_awaited_once()
+
+        # 3. Simulate #2: User taps "💰 Amount" then sends "22.90"
+        _PENDING_EDITS[(2001, 2001)] = PendingEdit(
+            expense_id=exp.id,
+            field="amount",
+            card_chat_id=2001,
+            card_message_id=502,
+            prompt_message_id=600,
+        )
+        reply_amt_msg = MagicMock()
+        reply_amt_msg.text = "22.90"
+        reply_amt_msg.chat.id = 2001
+        reply_amt_msg.from_user.id = 2001
+        reply_amt_msg.message_id = 601
+        reply_amt_msg.bot = mock_bot
+        reply_amt_msg.answer = AsyncMock()
+
+        await handle_quick_text_expense(reply_amt_msg, repo, hh, member)
+
+        reloaded2 = await repo.get_expense_by_id(hh.id, exp.id)
+        assert reloaded2 is not None
+        assert reloaded2.amount == Decimal("22.90")
+        assert (2001, 2001) not in _PENDING_EDITS
+
+        # 4. Simulate #2: User taps "📝 Note" then sends "FairPrice Finest"
+        _PENDING_EDITS[(2001, 2001)] = PendingEdit(
+            expense_id=exp.id,
+            field="note",
+            card_chat_id=2001,
+            card_message_id=502,
+            prompt_message_id=602,
+        )
+        reply_note_msg = MagicMock()
+        reply_note_msg.text = "FairPrice Finest"
+        reply_note_msg.chat.id = 2001
+        reply_note_msg.from_user.id = 2001
+        reply_note_msg.message_id = 603
+        reply_note_msg.bot = mock_bot
+        reply_note_msg.answer = AsyncMock()
+
+        await handle_quick_text_expense(reply_note_msg, repo, hh, member)
+
+        reloaded3 = await repo.get_expense_by_id(hh.id, exp.id)
+        assert reloaded3 is not None
+        assert reloaded3.description == "FairPrice Finest"
+
+    await engine.dispose()
+
+
 
