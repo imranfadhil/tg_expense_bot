@@ -71,6 +71,20 @@ def test_parse_custom_category():
     assert res.matched_explicitly is True
 
 
+def test_parse_rm_currency_and_malaysian_keywords():
+    res1 = parse_expense_text("RM630 prubsn takaful", DEFAULT_KEYS)
+    assert res1 is not None
+    assert res1.amount == Decimal("630.00")
+    assert res1.category_key == "health"
+    assert res1.description == "prubsn takaful"
+
+    res2 = parse_expense_text("nasi lemak mamak RM 14.50", DEFAULT_KEYS)
+    assert res2 is not None
+    assert res2.amount == Decimal("14.50")
+    assert res2.category_key == "dining"
+    assert res2.description == "nasi lemak mamak"
+
+
 def test_ignore_non_expense_messages():
     assert parse_expense_text("Hello family, what's for dinner?", DEFAULT_KEYS) is None
     assert parse_expense_text("/report", DEFAULT_KEYS) is None
