@@ -240,6 +240,39 @@ def create_webapp() -> FastAPI:
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
+    @app.get("/manifest.webmanifest")
+    @app.get("/manifest.json")
+    async def serve_manifest() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "manifest.webmanifest",
+            media_type="application/manifest+json",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/sw.js")
+    async def serve_service_worker() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "sw.js",
+            media_type="application/javascript",
+            headers={
+                "Service-Worker-Allowed": "/",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+            },
+        )
+
+    @app.get("/icons/{icon_name}")
+    async def serve_icon(icon_name: str) -> FileResponse:
+        icons_dir = (STATIC_DIR / "icons").resolve()
+        candidate = (icons_dir / icon_name).resolve()
+        if not str(candidate).startswith(str(icons_dir)) or not candidate.is_file():
+            raise HTTPException(status_code=404, detail="Icon not found.")
+        media_type = "image/svg+xml" if candidate.suffix.lower() == ".svg" else "image/png"
+        return FileResponse(
+            candidate,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @app.post("/api/auth/login")
     async def login(
         body: LoginRequest,

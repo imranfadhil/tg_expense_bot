@@ -162,6 +162,21 @@ async def test_webapp_api_full_flow(db_session, monkeypatch):
         r_html = await client.get("/")
         assert r_html.status_code == 200
         assert "Family Expense Live Dashboard" in r_html.text
+        assert "AUTO_REFRESH_INTERVAL_MS = 60000" in r_html.text
+        assert "isUserEditing()" in r_html.text
+        assert 'rel="manifest" href="/manifest.webmanifest"' in r_html.text
+
+        r_manifest = await client.get("/manifest.webmanifest")
+        assert r_manifest.status_code == 200
+        assert r_manifest.json()["display"] == "standalone"
+
+        r_sw = await client.get("/sw.js")
+        assert r_sw.status_code == 200
+        assert "Service-Worker-Allowed" in r_sw.headers
+
+        r_icon = await client.get("/icons/icon-192.png")
+        assert r_icon.status_code == 200
+        assert r_icon.headers["content-type"] == "image/png"
 
         # 2. Authenticate with Telegram initData
         init_data = _make_telegram_init_data(

@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0b1120" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Expenses" />
   <title>Family Expense Live Dashboard</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
@@ -843,6 +852,7 @@
         </div>
       </div>
       <div style="display: flex; gap: 6px;">
+        <button id="btn-install-pwa" class="icon-btn hidden" onclick="handleInstallPwaClick()" title="Install App">📲 Install</button>
         <button class="icon-btn" onclick="refreshDashboard(true)" title="Refresh Live Data">🔄</button>
         <button class="icon-btn" onclick="openAddModal()" title="Log Expense">➕ Log</button>
       </div>
@@ -1180,6 +1190,19 @@
     </div>
   </div>
 
+  <!-- MODAL: INSTALL PWA -->
+  <div id="modal-pwa-install" class="modal-backdrop" onclick="if(event.target===this)closeModal('modal-pwa-install')">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <div class="modal-title">📲 Install Dashboard App</div>
+        <button class="icon-btn" onclick="closeModal('modal-pwa-install')">✖️</button>
+      </div>
+      <div id="pwa-install-instructions" style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 14px;"></div>
+      <button id="btn-copy-pwa-link" type="button" class="btn-primary" style="margin-bottom: 8px;" onclick="copyPwaLaunchLink()">🔗 Copy Direct App Link</button>
+      <button type="button" class="icon-btn" style="width: 100%; justify-content: center; padding: 10px;" onclick="closeModal('modal-pwa-install')">Got it</button>
+    </div>
+  </div>
+
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     if (tg) {
@@ -1193,16 +1216,40 @@
     let currentMonth = urlParams.get("month") ? parseInt(urlParams.get("month"), 10) : null;
 
     let dashboardData = null;
+    let lastDataSnapshot = null;
+    let lastRefreshTime = 0;
+    let pendingBackgroundRefresh = false;
+    let hasRenderedOnce = false;
     let chartMode = "cumulative";
     let addMode = "form";
     let txTypeFilter = "all";
     let paceChartInstance = null;
     let donutChartInstance = null;
+    const AUTO_REFRESH_INTERVAL_MS = 60000;
 
     const CHART_COLORS = [
       "#38bdf8", "#6366f1", "#10b981", "#f59e0b", "#f43f5e",
       "#a855f7", "#14b8a6", "#ec4899", "#eab308", "#64748b"
     ];
+
+    function isUserEditing() {
+      if (document.querySelector(".modal-backdrop.open")) {
+        return true;
+      }
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "SELECT" || active.tagName === "TEXTAREA")) {
+        return true;
+      }
+      return false;
+    }
+
+    function setHtmlIfChanged(el, html) {
+      if (!el) return;
+      if (el.dataset.renderedHtml !== html) {
+        el.innerHTML = html;
+        el.dataset.renderedHtml = html;
+      }
+    }
 
     function haptic(type = "light") {
       try {
@@ -1331,6 +1378,11 @@
       }
     }
 
+    function updateSyncTimestamp() {
+      const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      document.getElementById("sync-status").textContent = `Updated ${nowTime}`;
+    }
+
     async function refreshDashboard(manual = false) {
       const qs = new URLSearchParams();
       if (currentYear) qs.set("year", currentYear);
@@ -1339,7 +1391,21 @@
       dashboardData = data;
       currentYear = data.navigation.year;
       currentMonth = data.navigation.month;
-      renderAll();
+      lastRefreshTime = Date.now();
+      pendingBackgroundRefresh = false;
+
+      const { server_time, ...comparableData } = data;
+      const nextSnapshot = JSON.stringify(comparableData);
+      const dataChanged = nextSnapshot !== lastDataSnapshot;
+      lastDataSnapshot = nextSnapshot;
+
+      if (dataChanged || !hasRenderedOnce) {
+        renderAll(!hasRenderedOnce);
+        hasRenderedOnce = true;
+      } else {
+        updateSyncTimestamp();
+      }
+
       if (manual) {
         haptic("light");
         showToast("✨ Live dashboard refreshed");
@@ -1362,14 +1428,13 @@
       refreshDashboard(false);
     }
 
-    function renderAll() {
+    function renderAll(animateCharts = false) {
       if (!dashboardData) return;
-      const { household, navigation, report, comparison, categories, recurring } = dashboardData;
+      const { household, navigation, report } = dashboardData;
       const cur = household.currency;
 
       document.getElementById("hh-name").textContent = household.name;
-      const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      document.getElementById("sync-status").textContent = `Updated ${nowTime}`;
+      updateSyncTimestamp();
 
       document.getElementById("month-label").textContent = navigation.month_label;
       document.getElementById("month-sub").textContent = navigation.is_current_month
@@ -1424,8 +1489,8 @@
           : "Past/future month";
       }
 
-      renderPaceChart();
-      renderCategoriesSection();
+      renderPaceChart(animateCharts);
+      renderCategoriesSection(animateCharts);
       renderComparisonSection();
       renderMembersSection();
       renderExpensesList();
@@ -1438,23 +1503,22 @@
       chartMode = mode;
       document.getElementById("chart-mode-cum").classList.toggle("active", mode === "cumulative");
       document.getElementById("chart-mode-daily").classList.toggle("active", mode === "daily");
-      renderPaceChart();
+      renderPaceChart(true);
     }
 
-    function renderPaceChart() {
+    function renderPaceChart(animate = false) {
       const ctx = document.getElementById("paceChart").getContext("2d");
       const series = dashboardData.daily_series || [];
       const cur = dashboardData.household.currency;
       const labels = series.map(d => `${d.day}`);
+      const targetType = chartMode === "cumulative" ? "line" : "bar";
 
-      if (paceChartInstance) {
-        paceChartInstance.destroy();
-      }
-
+      let datasets;
+      let scales;
       if (chartMode === "cumulative") {
         const cumData = series.map(d => d.cumulative_total);
         const budgetLine = series.map(d => d.budget_pace);
-        const datasets = [
+        datasets = [
           {
             label: "Actual Cumulative Spend",
             data: cumData,
@@ -1477,98 +1541,104 @@
             pointRadius: 0,
           });
         }
-        paceChartInstance = new Chart(ctx, {
-          type: "line",
-          data: { labels, datasets },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: "index", intersect: false },
-            plugins: {
-              legend: { labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } },
-              tooltip: {
-                callbacks: {
-                  label: (c) => `${c.dataset.label}: ${fmtMoney(c.parsed.y, cur)}`
-                }
-              }
-            },
-            scales: {
-              x: { ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
-              y: { ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
-            }
-          }
-        });
+        scales = {
+          x: { ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
+          y: { ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
+        };
       } else {
-        paceChartInstance = new Chart(ctx, {
-          type: "bar",
-          data: {
-            labels,
-            datasets: [
-              {
-                label: "🔄 Variable",
-                data: series.map(d => d.variable),
-                backgroundColor: "#38bdf8",
-                borderRadius: 4,
-              },
-              {
-                label: "📌 Fixed / Once-Off",
-                data: series.map(d => d.fixed),
-                backgroundColor: "#6366f1",
-                borderRadius: 4,
-              }
-            ]
+        datasets = [
+          {
+            label: "🔄 Variable",
+            data: series.map(d => d.variable),
+            backgroundColor: "#38bdf8",
+            borderRadius: 4,
           },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } },
-              tooltip: {
-                callbacks: {
-                  label: (c) => `${c.dataset.label}: ${fmtMoney(c.parsed.y, cur)}`
-                }
-              }
-            },
-            scales: {
-              x: { stacked: true, ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
-              y: { stacked: true, ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
-            }
+          {
+            label: "📌 Fixed / Once-Off",
+            data: series.map(d => d.fixed),
+            backgroundColor: "#6366f1",
+            borderRadius: 4,
           }
-        });
+        ];
+        scales = {
+          x: { stacked: true, ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
+        };
       }
+
+      if (paceChartInstance && paceChartInstance.config.type === targetType) {
+        paceChartInstance.data.labels = labels;
+        paceChartInstance.data.datasets = datasets;
+        paceChartInstance.update(animate ? undefined : "none");
+        return;
+      }
+
+      if (paceChartInstance) {
+        paceChartInstance.destroy();
+      }
+
+      paceChartInstance = new Chart(ctx, {
+        type: targetType,
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: chartMode === "cumulative" ? { mode: "index", intersect: false } : undefined,
+          plugins: {
+            legend: { labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (c) => `${c.dataset.label}: ${fmtMoney(c.parsed.y, cur)}`
+              }
+            }
+          },
+          scales
+        }
+      });
     }
 
-    function renderCategoriesSection() {
+    function renderCategoriesSection(animate = false) {
       const cur = dashboardData.household.currency;
       const activeCats = (dashboardData.categories || []).filter(c => c.total > 0 || (c.budget && c.budget > 0));
       document.getElementById("cat-active-count").textContent = `${activeCats.length} active`;
 
-      const donutCtx = document.getElementById("categoryDonut").getContext("2d");
-      if (donutChartInstance) donutChartInstance.destroy();
-
       const spentCats = activeCats.filter(c => c.total > 0);
       if (spentCats.length > 0) {
-        donutChartInstance = new Chart(donutCtx, {
-          type: "doughnut",
-          data: {
-            labels: spentCats.map(c => c.display_name),
-            datasets: [{
-              data: spentCats.map(c => c.total),
-              backgroundColor: spentCats.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]),
-              borderWidth: 0
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: "66%",
-            plugins: { legend: { display: false } }
-          }
-        });
+        const labels = spentCats.map(c => c.display_name);
+        const dataVals = spentCats.map(c => c.total);
+        const bgColors = spentCats.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]);
+        if (donutChartInstance) {
+          donutChartInstance.data.labels = labels;
+          donutChartInstance.data.datasets[0].data = dataVals;
+          donutChartInstance.data.datasets[0].backgroundColor = bgColors;
+          donutChartInstance.update(animate ? undefined : "none");
+        } else {
+          const donutCtx = document.getElementById("categoryDonut").getContext("2d");
+          donutChartInstance = new Chart(donutCtx, {
+            type: "doughnut",
+            data: {
+              labels,
+              datasets: [{
+                data: dataVals,
+                backgroundColor: bgColors,
+                borderWidth: 0
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: "66%",
+              plugins: { legend: { display: false } }
+            }
+          });
+        }
+      } else if (donutChartInstance) {
+        donutChartInstance.destroy();
+        donutChartInstance = null;
       }
 
       const legendEl = document.getElementById("top-cat-legend");
-      legendEl.innerHTML = spentCats.slice(0, 5).map((c, idx) => `
+      const legendHtml = spentCats.slice(0, 5).map((c, idx) => `
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
           <span style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
             <span style="width:8px; height:8px; border-radius:50%; background:${CHART_COLORS[idx % CHART_COLORS.length]}; flex-shrink:0;"></span>
@@ -1577,14 +1647,15 @@
           <span style="font-weight:700; color:var(--text-primary); margin-left:8px;">${c.share_pct.toFixed(1)}%</span>
         </div>
       `).join("") || `<div class="empty-state" style="padding:10px;">No expenses logged yet this month.</div>`;
+      setHtmlIfChanged(legendEl, legendHtml);
 
       const listEl = document.getElementById("cat-list");
       if (activeCats.length === 0) {
-        listEl.innerHTML = `<div class="empty-state">Tap <b>+ Log</b> to record your first expense!</div>`;
+        setHtmlIfChanged(listEl, `<div class="empty-state">Tap <b>+ Log</b> to record your first expense!</div>`);
         return;
       }
 
-      listEl.innerHTML = activeCats.map((c, idx) => {
+      const catListHtml = activeCats.map((c) => {
         const barPct = c.budget && c.budget > 0 ? Math.min(100, c.budget_pct || 0) : Math.min(100, c.share_pct || 0);
         const barClass = c.budget_pct >= 100 ? "danger" : (c.budget_pct >= 80 ? "warn" : "");
         const fixedBadge = c.is_fixed
@@ -1611,6 +1682,7 @@
           </div>
         `;
       }).join("");
+      setHtmlIfChanged(listEl, catListHtml);
     }
 
     function renderComparisonSection() {
@@ -1635,13 +1707,13 @@
         `;
       }
 
-      document.getElementById("mom-summary").innerHTML = `
+      setHtmlIfChanged(document.getElementById("mom-summary"), `
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
           <span><b>${escapeHtml(comp.prev_label)} Full Month:</b> ${fmtMoney(comp.prev_total, cur)}</span>
           <span><b>Net Change:</b> ${diffSign}${fmtMoney(comp.total_diff, cur)}${diffPct}</span>
         </div>
         ${paceHtml}
-      `;
+      `);
     }
 
     function renderMembersSection() {
@@ -1653,14 +1725,14 @@
       }
       card.classList.remove("hidden");
       const cur = dashboardData.household.currency;
-      document.getElementById("member-list").innerHTML = members.map(m => `
+      setHtmlIfChanged(document.getElementById("member-list"), members.map(m => `
         <div class="cat-item" style="cursor:default;">
           <div class="cat-row-top" style="margin-bottom:0;">
             <div class="cat-name">👤 ${escapeHtml(m.display_name)} <span class="badge badge-fixed">${m.count} tx</span></div>
             <div class="cat-amt">${fmtMoney(m.total, cur)} (${m.share_pct.toFixed(1)}%)</div>
           </div>
         </div>
-      `).join("");
+      `).join(""));
     }
 
     function setTxFilter(filter, btnEl) {
@@ -1689,11 +1761,11 @@
 
       const listEl = document.getElementById("tx-list");
       if (filtered.length === 0) {
-        listEl.innerHTML = `<div class="empty-state">No matching expenses found for this view.</div>`;
+        setHtmlIfChanged(listEl, `<div class="empty-state">No matching expenses found for this view.</div>`);
         return;
       }
 
-      listEl.innerHTML = filtered.map(tx => {
+      setHtmlIfChanged(listEl, filtered.map(tx => {
         const recBadge = tx.is_recurring ? `<span class="badge badge-recurring">🔁 Recurring</span>` : "";
         const onceBadge = (!tx.is_recurring && tx.effective_once_off)
           ? `<span class="badge badge-fixed">📌 Once-Off</span>`
@@ -1714,17 +1786,23 @@
             </div>
           </div>
         `;
-      }).join("");
+      }).join(""));
     }
 
     function renderBudgetsTab() {
       const { household, categories } = dashboardData;
       const cur = household.currency;
-      document.getElementById("setting-currency").value = household.currency || "$";
-      document.getElementById("setting-hh-budget").value = household.monthly_budget || "";
+      const curInput = document.getElementById("setting-currency");
+      if (document.activeElement !== curInput) {
+        curInput.value = household.currency || "$";
+      }
+      const hhBudgetInput = document.getElementById("setting-hh-budget");
+      if (document.activeElement !== hhBudgetInput) {
+        hhBudgetInput.value = household.monthly_budget || "";
+      }
 
       const listEl = document.getElementById("budget-cat-list");
-      listEl.innerHTML = (categories || []).map(c => {
+      setHtmlIfChanged(listEl, (categories || []).map(c => {
         const modeBadge = c.is_fixed
           ? `<span class="badge badge-fixed">📌 Fixed (1x)</span>`
           : `<span class="badge badge-ok">🔄 Variable</span>`;
@@ -1743,7 +1821,7 @@
             </div>
           </div>
         `;
-      }).join("");
+      }).join(""));
     }
 
     function renderRecurringTab() {
@@ -1754,11 +1832,11 @@
 
       const listEl = document.getElementById("rec-list");
       if (!rec.items || rec.items.length === 0) {
-        listEl.innerHTML = `<div class="empty-state">No monthly recurring bills configured yet.<br/>Tap <b>➕ Add Recurring</b> to add subscriptions, loans, or school fees!</div>`;
+        setHtmlIfChanged(listEl, `<div class="empty-state">No monthly recurring bills configured yet.<br/>Tap <b>➕ Add Recurring</b> to add subscriptions, loans, or school fees!</div>`);
         return;
       }
 
-      listEl.innerHTML = rec.items.map(tx => `
+      setHtmlIfChanged(listEl, rec.items.map(tx => `
         <div class="tx-item" onclick='openEditModal(${JSON.stringify(tx).replace(/'/g, "&#39;")})'>
           <div class="tx-left">
             <div class="tx-cat">
@@ -1773,15 +1851,26 @@
             <div style="font-size:11px; color:var(--accent);">Manage ✏️</div>
           </div>
         </div>
-      `).join("");
+      `).join(""));
     }
 
     function populateCategorySelects() {
       const cats = dashboardData.categories || [];
       const sorted = [...cats].sort((a, b) => a.id - b.id);
       const html = sorted.map(c => `<option value="${c.id}">${escapeHtml(c.display_name)} (${escapeHtml(c.name)})</option>`).join("");
-      document.getElementById("add-category").innerHTML = html;
-      document.getElementById("edit-category").innerHTML = html;
+
+      ["add-category", "edit-category"].forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        if (sel.dataset.optionsHtml !== html) {
+          const prevValue = sel.value;
+          sel.innerHTML = html;
+          sel.dataset.optionsHtml = html;
+          if (prevValue && sorted.some(c => String(c.id) === String(prevValue))) {
+            sel.value = prevValue;
+          }
+        }
+      });
     }
 
     function switchTab(tabName, btnEl) {
@@ -1849,8 +1938,11 @@
       document.getElementById("modal-new-cat").classList.add("open");
     }
 
-    function closeModal(id) {
+    function closeModal(id, skipDeferredRefresh = false) {
       document.getElementById(id).classList.remove("open");
+      if (!skipDeferredRefresh && pendingBackgroundRefresh && !isUserEditing()) {
+        refreshDashboard(false).catch(() => {});
+      }
     }
 
     async function submitAddExpense(e) {
@@ -1879,7 +1971,7 @@
           method: "POST",
           body: JSON.stringify(payload)
         });
-        closeModal("modal-add");
+        closeModal("modal-add", true);
         haptic("medium");
         showToast("✅ Expense recorded!");
         await refreshDashboard(false);
@@ -1903,7 +1995,7 @@
           method: "PATCH",
           body: JSON.stringify(payload)
         });
-        closeModal("modal-edit");
+        closeModal("modal-edit", true);
         haptic("medium");
         showToast("✏️ Expense updated!");
         await refreshDashboard(false);
@@ -1917,7 +2009,7 @@
       if (!confirm("Delete this expense permanently?")) return;
       try {
         await apiFetch(`/api/expenses/${id}`, { method: "DELETE" });
-        closeModal("modal-edit");
+        closeModal("modal-edit", true);
         haptic("heavy");
         showToast("🗑️ Expense deleted");
         await refreshDashboard(false);
@@ -1968,7 +2060,7 @@
             }]
           })
         });
-        closeModal("modal-cat-budget");
+        closeModal("modal-cat-budget", true);
         haptic("medium");
         showToast("✅ Category updated!");
         await refreshDashboard(false);
@@ -1994,7 +2086,7 @@
             is_fixed
           })
         });
-        closeModal("modal-new-cat");
+        closeModal("modal-new-cat", true);
         haptic("medium");
         showToast("🗂️ Category created!");
         await refreshDashboard(false);
@@ -2003,19 +2095,138 @@
       }
     }
 
-    // Live auto-refresh every 15s while visible
+    let deferredInstallPrompt = null;
+
+    function isStandaloneMode() {
+      return (
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        window.navigator.standalone === true
+      );
+    }
+
+    function isIosDevice() {
+      const ua = window.navigator.userAgent || "";
+      return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    }
+
+    function isTelegramWebview() {
+      return Boolean(tg && tg.initData);
+    }
+
+    function updateInstallButtonVisibility() {
+      const btn = document.getElementById("btn-install-pwa");
+      if (!btn) return;
+      if (isStandaloneMode()) {
+        btn.classList.add("hidden");
+        return;
+      }
+      if (deferredInstallPrompt || isIosDevice() || isTelegramWebview()) {
+        btn.classList.remove("hidden");
+      }
+    }
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      updateInstallButtonVisibility();
+    });
+
+    window.addEventListener("appinstalled", () => {
+      deferredInstallPrompt = null;
+      updateInstallButtonVisibility();
+      closeModal("modal-pwa-install", true);
+      showToast("📲 App installed to your device!");
+    });
+
+    async function handleInstallPwaClick() {
+      haptic("light");
+      if (deferredInstallPrompt) {
+        try {
+          deferredInstallPrompt.prompt();
+          const choice = await deferredInstallPrompt.userChoice;
+          if (choice && choice.outcome === "accepted") {
+            deferredInstallPrompt = null;
+            updateInstallButtonVisibility();
+          }
+          return;
+        } catch (err) {}
+      }
+
+      const infoEl = document.getElementById("pwa-install-instructions");
+      if (isTelegramWebview()) {
+        infoEl.innerHTML = `
+          <p style="margin-bottom: 10px;">To install the full standalone app on your phone's home screen:</p>
+          <ol style="padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
+            <li>Tap <b>🔗 Copy Direct App Link</b> below (includes your login token).</li>
+            <li>Open the link in <b>Safari</b> (iPhone/iPad) or <b>Chrome</b> (Android/Desktop).</li>
+            <li>Tap <b>📲 Install</b> or select <b>Add to Home Screen</b> from your browser menu.</li>
+          </ol>
+        `;
+      } else if (isIosDevice()) {
+        infoEl.innerHTML = `
+          <p style="margin-bottom: 10px;">Install this dashboard on your iPhone or iPad Home Screen:</p>
+          <ol style="padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
+            <li>Tap the <b>Share</b> button <span style="color:var(--accent);">⬆️</span> in Safari's toolbar.</li>
+            <li>Scroll down and tap <b>Add to Home Screen ➕</b>.</li>
+            <li>Tap <b>Add</b> in the top-right corner.</li>
+          </ol>
+        `;
+      } else {
+        infoEl.innerHTML = `
+          <p style="margin-bottom: 10px;">To install this dashboard as a standalone app:</p>
+          <ol style="padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
+            <li>Open your browser menu (<b>⋮</b> or address bar icon).</li>
+            <li>Select <b>Install app</b> or <b>Add to Home screen</b>.</li>
+          </ol>
+        `;
+      }
+      document.getElementById("modal-pwa-install").classList.add("open");
+    }
+
+    async function copyPwaLaunchLink() {
+      const url = new URL(window.location.origin + "/");
+      if (sessionToken) {
+        url.searchParams.set("token", sessionToken);
+      }
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        haptic("medium");
+        showToast("🔗 Direct app link copied!");
+      } catch (err) {
+        showToast("⚠️ Could not copy automatically — copy URL from address bar");
+      }
+    }
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+
+    // Live auto-refresh every 60s while visible and not editing
     setInterval(() => {
       if (!document.hidden && sessionToken && dashboardData) {
+        if (isUserEditing()) {
+          pendingBackgroundRefresh = true;
+          return;
+        }
         refreshDashboard(false).catch(() => {});
       }
-    }, 15000);
+    }, AUTO_REFRESH_INTERVAL_MS);
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && sessionToken && dashboardData) {
-        refreshDashboard(false).catch(() => {});
+        if (isUserEditing()) {
+          pendingBackgroundRefresh = true;
+          return;
+        }
+        if (Date.now() - lastRefreshTime >= AUTO_REFRESH_INTERVAL_MS) {
+          refreshDashboard(false).catch(() => {});
+        }
       }
     });
 
+    updateInstallButtonVisibility();
     initApp();
   </script>
 </body>
