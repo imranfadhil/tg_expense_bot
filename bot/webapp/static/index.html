@@ -3,24 +3,93 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0b1120" />
+  <meta name="theme-color" id="meta-theme-color" content="#f8fafc" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Expenses" />
   <title>Family Expense Live Dashboard</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("tg_expense_theme");
+        var theme = saved === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     :root {
+      color-scheme: light;
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --bg-gradient: radial-gradient(circle at top right, #e0f2fe 0%, #f8fafc 55%);
+      --bg-card: rgba(255, 255, 255, 0.92);
+      --bg-card-hover: rgba(241, 245, 249, 0.98);
+      --bg-surface: #f1f5f9;
+      --bg-surface-hover: #e2e8f0;
+      --bg-input: #ffffff;
+      --bg-nav: rgba(255, 255, 255, 0.92);
+      --bg-modal: #ffffff;
+      --bg-backdrop: rgba(15, 23, 42, 0.45);
+      --bg-hero: linear-gradient(145deg, rgba(238, 242, 255, 0.95), rgba(224, 242, 254, 0.9));
+      --border-hero: rgba(99, 102, 241, 0.25);
+      --hero-amount-grad: linear-gradient(90deg, #0f172a, #0284c7);
+      --border-subtle: rgba(15, 23, 42, 0.1);
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --accent: #0284c7;
+      --accent-glow: rgba(2, 132, 199, 0.15);
+      --indigo: #4f46e5;
+      --emerald: #059669;
+      --emerald-bg: rgba(16, 185, 129, 0.14);
+      --amber: #d97706;
+      --amber-bg: rgba(245, 158, 11, 0.15);
+      --rose: #e11d48;
+      --rose-bg: rgba(244, 63, 94, 0.12);
+      --purple: #7c3aed;
+      --purple-bg: rgba(124, 58, 237, 0.12);
+      --badge-fixed-bg: rgba(100, 116, 139, 0.14);
+      --badge-fixed-text: #475569;
+      --badge-rec-text: #6d28d9;
+      --btn-secondary-bg: #f1f5f9;
+      --btn-secondary-hover: #e2e8f0;
+      --toast-bg: #0f172a;
+      --toast-text: #f8fafc;
+      --chart-tick: #64748b;
+      --chart-legend: #475569;
+      --chart-grid: rgba(15, 23, 42, 0.07);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --shadow-card: 0 6px 24px -6px rgba(15, 23, 42, 0.08);
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
       --bg-primary: #0b1120;
       --bg-secondary: #131c31;
+      --bg-gradient: radial-gradient(circle at top right, #172554 0%, var(--bg-primary) 55%);
       --bg-card: rgba(23, 33, 56, 0.88);
       --bg-card-hover: rgba(30, 43, 72, 0.95);
+      --bg-surface: rgba(15, 23, 42, 0.55);
+      --bg-surface-hover: rgba(30, 41, 59, 0.8);
+      --bg-input: rgba(15, 23, 42, 0.75);
+      --bg-nav: rgba(11, 17, 32, 0.92);
+      --bg-modal: #131c31;
+      --bg-backdrop: rgba(2, 6, 23, 0.76);
+      --bg-hero: linear-gradient(145deg, rgba(30, 41, 75, 0.92), rgba(17, 24, 43, 0.95));
+      --border-hero: rgba(99, 102, 241, 0.28);
+      --hero-amount-grad: linear-gradient(90deg, #ffffff, #bae6fd);
       --border-subtle: rgba(148, 163, 184, 0.14);
       --text-primary: #f8fafc;
       --text-secondary: #94a3b8;
@@ -36,9 +105,16 @@
       --rose-bg: rgba(244, 63, 94, 0.16);
       --purple: #a855f7;
       --purple-bg: rgba(168, 85, 247, 0.15);
-      --radius-lg: 18px;
-      --radius-md: 12px;
-      --radius-sm: 8px;
+      --badge-fixed-bg: rgba(148, 163, 184, 0.16);
+      --badge-fixed-text: #cbd5e1;
+      --badge-rec-text: #d8b4fe;
+      --btn-secondary-bg: rgba(30, 41, 59, 0.75);
+      --btn-secondary-hover: rgba(51, 65, 85, 0.85);
+      --toast-bg: #1e293b;
+      --toast-text: #f8fafc;
+      --chart-tick: #64748b;
+      --chart-legend: #94a3b8;
+      --chart-grid: rgba(148, 163, 184, 0.08);
       --shadow-card: 0 8px 28px -6px rgba(0, 0, 0, 0.45);
     }
 
@@ -51,13 +127,14 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
-      background: radial-gradient(circle at top right, #172554 0%, var(--bg-primary) 55%);
+      background: var(--bg-gradient);
       background-color: var(--bg-primary);
       color: var(--text-primary);
       min-height: 100vh;
       padding-bottom: 96px;
       overflow-x: hidden;
       line-height: 1.45;
+      transition: background-color 0.2s ease, color 0.2s ease;
     }
 
     /* Layout Container */
@@ -189,7 +266,7 @@
     }
 
     .month-nav-btn:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--bg-surface);
       color: var(--text-primary);
     }
 
@@ -221,8 +298,8 @@
     }
 
     .hero-card {
-      background: linear-gradient(145deg, rgba(30, 41, 75, 0.92), rgba(17, 24, 43, 0.95));
-      border: 1px solid rgba(99, 102, 241, 0.28);
+      background: var(--bg-hero);
+      border: 1px solid var(--border-hero);
       position: relative;
       overflow: hidden;
     }
@@ -248,13 +325,13 @@
       font-weight: 800;
       letter-spacing: -0.02em;
       margin-top: 2px;
-      background: linear-gradient(90deg, #ffffff, #bae6fd);
+      background: var(--hero-amount-grad);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
     .hero-tx-badge {
-      background: rgba(56, 189, 248, 0.14);
+      background: var(--accent-glow);
       color: var(--accent);
       border: 1px solid rgba(56, 189, 248, 0.28);
       font-size: 12px;
@@ -280,10 +357,10 @@
     .progress-track {
       width: 100%;
       height: 10px;
-      background: rgba(15, 23, 42, 0.75);
+      background: var(--bg-surface);
       border-radius: 999px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-subtle);
     }
 
     .progress-fill {
@@ -310,7 +387,7 @@
     }
 
     .kpi-box {
-      background: rgba(15, 23, 42, 0.55);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       padding: 10px 12px;
@@ -357,7 +434,7 @@
     /* Segmented Toggle */
     .seg-group {
       display: inline-flex;
-      background: rgba(15, 23, 42, 0.7);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: 9px;
       padding: 2px;
@@ -416,7 +493,7 @@
     }
 
     .cat-item {
-      background: rgba(15, 23, 42, 0.45);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       padding: 10px 12px;
@@ -425,7 +502,7 @@
     }
 
     .cat-item:hover {
-      background: rgba(30, 41, 59, 0.75);
+      background: var(--bg-surface-hover);
     }
 
     .cat-row-top {
@@ -462,13 +539,13 @@
     }
 
     .badge-fixed {
-      background: rgba(148, 163, 184, 0.16);
-      color: #cbd5e1;
+      background: var(--badge-fixed-bg);
+      color: var(--badge-fixed-text);
     }
 
     .badge-recurring {
       background: var(--purple-bg);
-      color: #d8b4fe;
+      color: var(--badge-rec-text);
     }
 
     .badge-warn {
@@ -496,7 +573,7 @@
 
     .search-input, .form-input, .form-select {
       width: 100%;
-      background: rgba(15, 23, 42, 0.75);
+      background: var(--bg-input);
       border: 1px solid var(--border-subtle);
       border-radius: 11px;
       padding: 10px 12px;
@@ -523,7 +600,7 @@
     }
 
     .chip {
-      background: rgba(15, 23, 42, 0.65);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       color: var(--text-secondary);
       padding: 5px 11px;
@@ -536,7 +613,7 @@
     }
 
     .chip.active {
-      background: rgba(56, 189, 248, 0.18);
+      background: var(--accent-glow);
       color: var(--accent);
       border-color: rgba(56, 189, 248, 0.45);
     }
@@ -552,7 +629,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      background: rgba(15, 23, 42, 0.5);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       padding: 11px 13px;
@@ -561,7 +638,7 @@
     }
 
     .tx-item:hover {
-      background: rgba(30, 41, 59, 0.8);
+      background: var(--bg-surface-hover);
       border-color: rgba(56, 189, 248, 0.3);
     }
 
@@ -611,7 +688,7 @@
       bottom: 0;
       left: 0;
       right: 0;
-      background: rgba(11, 17, 32, 0.92);
+      background: var(--bg-nav);
       border-top: 1px solid var(--border-subtle);
       backdrop-filter: blur(16px);
       display: flex;
@@ -670,7 +747,7 @@
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(2, 6, 23, 0.76);
+      background: var(--bg-backdrop);
       backdrop-filter: blur(6px);
       display: none;
       align-items: flex-end;
@@ -684,15 +761,15 @@
     }
 
     .modal-sheet {
-      background: #131c31;
-      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: var(--bg-modal);
+      border: 1px solid var(--border-subtle);
       border-radius: 22px;
       width: 100%;
       max-width: 540px;
       max-height: 90vh;
       overflow-y: auto;
       padding: 18px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
       animation: slideUp 0.2s ease-out;
     }
 
@@ -733,7 +810,7 @@
 
     .toggle-pill {
       flex: 1;
-      background: rgba(15, 23, 42, 0.65);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: 11px;
       padding: 9px 10px;
@@ -746,7 +823,7 @@
     }
 
     .toggle-pill.active {
-      background: rgba(56, 189, 248, 0.18);
+      background: var(--accent-glow);
       border-color: var(--accent);
       color: var(--text-primary);
     }
@@ -770,9 +847,9 @@
 
     .btn-secondary {
       width: 100%;
-      background: rgba(30, 41, 59, 0.75);
+      background: var(--btn-secondary-bg);
       color: var(--text-primary);
-      border: 1px solid rgba(148, 163, 184, 0.28);
+      border: 1px solid var(--border-subtle);
       border-radius: 12px;
       padding: 11px;
       font-size: 13.5px;
@@ -783,7 +860,7 @@
     }
 
     .btn-secondary:hover {
-      background: rgba(51, 65, 85, 0.85);
+      background: var(--btn-secondary-hover);
       border-color: rgba(56, 189, 248, 0.4);
     }
 
@@ -812,15 +889,15 @@
       top: 16px;
       left: 50%;
       transform: translateX(-50%);
-      background: #1e293b;
+      background: var(--toast-bg);
       border: 1px solid rgba(56, 189, 248, 0.4);
-      color: #f8fafc;
+      color: var(--toast-text);
       padding: 10px 16px;
       border-radius: 12px;
       font-size: 13px;
       font-weight: 600;
       z-index: 200;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
       display: none;
       max-width: 92vw;
     }
@@ -835,7 +912,8 @@
 
   <!-- Auth / Unlock Screen -->
   <div id="auth-screen" class="app-shell hidden" style="padding-top: 48px;">
-    <div class="card" style="max-width: 420px; margin: 0 auto; text-align: center;">
+    <div class="card" style="max-width: 420px; margin: 0 auto; text-align: center; position: relative;">
+      <button id="btn-auth-theme-toggle" type="button" class="icon-btn" onclick="toggleTheme()" title="Switch to Dark Mode" style="position: absolute; top: 14px; right: 14px; padding: 6px 9px;">🌙</button>
       <div class="brand-icon" style="margin: 0 auto 14px; width: 52px; height: 52px; font-size: 26px;">🔐</div>
       <h2 style="font-size: 20px; margin-bottom: 6px;">Family Financial Dashboard</h2>
       <p id="auth-subtitle" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 18px;">
@@ -872,6 +950,7 @@
       </div>
       <div style="display: flex; gap: 6px;">
         <button id="btn-install-pwa" class="icon-btn hidden" onclick="handleInstallPwaClick()" title="Install App">📲 Install</button>
+        <button id="btn-theme-toggle" class="icon-btn" onclick="toggleTheme()" title="Switch to Dark Mode">🌙</button>
         <button class="icon-btn" onclick="refreshDashboard(true)" title="Refresh Live Data">🔄</button>
         <button class="icon-btn" onclick="openAddModal()" title="Log Expense">➕ Log</button>
       </div>
@@ -1315,6 +1394,53 @@
       "#a855f7", "#14b8a6", "#ec4899", "#eab308", "#64748b"
     ];
 
+    function getTheme() {
+      return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+    }
+
+    function applyTheme(theme) {
+      const normalized = theme === "dark" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", normalized);
+      try {
+        localStorage.setItem("tg_expense_theme", normalized);
+      } catch (e) {}
+
+      const metaTheme = document.getElementById("meta-theme-color");
+      const bgHex = normalized === "dark" ? "#0b1120" : "#f8fafc";
+      if (metaTheme) {
+        metaTheme.setAttribute("content", bgHex);
+      }
+      if (tg) {
+        try {
+          if (typeof tg.setHeaderColor === "function") tg.setHeaderColor(bgHex);
+          if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor(bgHex);
+        } catch (e) {}
+      }
+
+      const icon = normalized === "dark" ? "☀️" : "🌙";
+      const title = normalized === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode";
+      ["btn-theme-toggle", "btn-auth-theme-toggle"].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          btn.textContent = icon;
+          btn.title = title;
+        }
+      });
+
+      if (dashboardData && paceChartInstance) {
+        renderPaceChart(false);
+      }
+    }
+
+    function toggleTheme() {
+      haptic("light");
+      const next = getTheme() === "dark" ? "light" : "dark";
+      applyTheme(next);
+      showToast(next === "dark" ? "🌙 Dark mode enabled" : "☀️ Light mode enabled");
+    }
+
+    applyTheme(getTheme());
+
     function isUserEditing() {
       if (document.querySelector(".modal-backdrop.open")) {
         return true;
@@ -1598,6 +1724,10 @@
       const cur = dashboardData.household.currency;
       const labels = series.map(d => `${d.day}`);
       const targetType = chartMode === "cumulative" ? "line" : "bar";
+      const isDark = getTheme() === "dark";
+      const tickColor = "#64748b";
+      const gridColor = isDark ? "rgba(148, 163, 184, 0.08)" : "rgba(15, 23, 42, 0.07)";
+      const legendColor = isDark ? "#94a3b8" : "#475569";
 
       let datasets;
       let scales;
@@ -1628,8 +1758,8 @@
           });
         }
         scales = {
-          x: { ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
-          y: { ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
+          x: { ticks: { color: tickColor, maxTicksLimit: 10 }, grid: { display: false } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor } }
         };
       } else {
         datasets = [
@@ -1647,14 +1777,16 @@
           }
         ];
         scales = {
-          x: { stacked: true, ticks: { color: "#64748b", maxTicksLimit: 10 }, grid: { display: false } },
-          y: { stacked: true, ticks: { color: "#64748b" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
+          x: { stacked: true, ticks: { color: tickColor, maxTicksLimit: 10 }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: tickColor }, grid: { color: gridColor } }
         };
       }
 
       if (paceChartInstance && paceChartInstance.config.type === targetType) {
         paceChartInstance.data.labels = labels;
         paceChartInstance.data.datasets = datasets;
+        paceChartInstance.options.scales = scales;
+        paceChartInstance.options.plugins.legend.labels.color = legendColor;
         paceChartInstance.update(animate ? undefined : "none");
         return;
       }
@@ -1671,7 +1803,7 @@
           maintainAspectRatio: false,
           interaction: chartMode === "cumulative" ? { mode: "index", intersect: false } : undefined,
           plugins: {
-            legend: { labels: { color: "#94a3b8", boxWidth: 12, font: { size: 11 } } },
+            legend: { labels: { color: legendColor, boxWidth: 12, font: { size: 11 } } },
             tooltip: {
               callbacks: {
                 label: (c) => `${c.dataset.label}: ${fmtMoney(c.parsed.y, cur)}`
@@ -2032,7 +2164,7 @@
         ? `<span class="badge badge-fixed">📌 Fixed Category (counted 1x)</span>`
         : `<span class="badge badge-ok">🔄 Variable Category</span>`;
       document.getElementById("cat-detail-badges").innerHTML = `
-        <code style="font-size:11px; color:var(--text-secondary); background:rgba(15,23,42,0.7); padding:2px 6px; border-radius:5px;">#${escapeHtml(cat.name)}</code>
+        <code style="font-size:11px; color:var(--text-secondary); background:var(--bg-surface); padding:2px 6px; border-radius:5px;">#${escapeHtml(cat.name)}</code>
         ${modeBadge}
       `;
 

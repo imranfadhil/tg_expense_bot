@@ -167,6 +167,9 @@ async def test_webapp_api_full_flow(db_session, monkeypatch):
         assert 'rel="manifest" href="/manifest.webmanifest"' in r_html.text
         assert "openCategoryDetailModal(" in r_html.text
         assert 'id="modal-cat-detail"' in r_html.text
+        assert 'id="btn-theme-toggle"' in r_html.text
+        assert "toggleTheme()" in r_html.text
+        assert '[data-theme="dark"]' in r_html.text
 
         r_manifest = await client.get("/manifest.webmanifest")
         assert r_manifest.status_code == 200
