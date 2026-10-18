@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import timedelta
 from urllib.parse import urlencode
 
 import httpx
@@ -281,6 +282,97 @@ async def test_webapp_api_full_flow(db_session, monkeypatch):
         r_del = await client.delete(f"/api/expenses/{exp1['id']}", headers=headers)
         assert r_del.status_code == 200
         assert r_del.json()["deleted"] is True
+
+
+@pytest.mark.asyncio
+async def test_webapp_backdated_expense(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "bot_token", "123456:TEST_BOT_TOKEN")
+    monkeypatch.setattr(settings, "bot_passphrase", None)
+
+    repo = ExpenseRepo(db_session)
+    app = create_webapp()
+
+    async def override_get_repo():
+        yield repo
+
+    app.dependency_overrides[get_repo] = override_get_repo
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        init_data = _make_telegram_init_data(
+            user_id=999, first_name="Imran", bot_token="123456:TEST_BOT_TOKEN"
+        )
+        r_login = await client.post("/api/auth/login", json={"init_data": init_data})
+        assert r_login.status_code == 200
+        token = r_login.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        today = settings.now().date()
+        backdate = today - timedelta(days=3)
+
+        # 1. No date supplied -> defaults to today
+        r_default = await client.post(
+            "/api/expenses",
+            headers=headers,
+            json={"amount": 10, "description": "no date"},
+        )
+        assert r_default.status_code == 200
+        assert r_default.json()["expense"]["spent_date"] == today.isoformat()
+
+        # 2. Explicit backdate is honoured
+        r_back = await client.post(
+            "/api/expenses",
+            headers=headers,
+            json={"amount": 20, "description": "backdated", "spent_date": backdate.isoformat()},
+        )
+        assert r_back.status_code == 200
+        back_exp = r_back.json()["expense"]
+        assert back_exp["spent_date"] == backdate.isoformat()
+
+        # 3. Backdate also works with quick_text
+        r_quick = await client.post(
+            "/api/expenses",
+            headers=headers,
+            json={"quick_text": "15.50 groceries NTUC", "spent_date": backdate.isoformat()},
+        )
+        assert r_quick.status_code == 200
+        assert r_quick.json()["expense"]["spent_date"] == backdate.isoformat()
+
+        # 4. Editing the date moves the expense
+        r_patch = await client.patch(
+            f"/api/expenses/{back_exp['id']}",
+            headers=headers,
+            json={"spent_date": today.isoformat()},
+        )
+        assert r_patch.status_code == 200
+        assert r_patch.json()["expense"]["spent_date"] == today.isoformat()
+
+        # 5. Future dates are rejected
+        r_future = await client.post(
+            "/api/expenses",
+            headers=headers,
+            json={"amount": 5, "spent_date": (today + timedelta(days=1)).isoformat()},
+        )
+        assert r_future.status_code == 400
+
+        # 6. Malformed dates are rejected
+        r_bad = await client.post(
+            "/api/expenses",
+            headers=headers,
+            json={"amount": 5, "spent_date": "18-10-2026"},
+        )
+        assert r_bad.status_code == 400
+
+        # 7. Omitting spent_date on edit leaves the date untouched
+        r_keep = await client.patch(
+            f"/api/expenses/{back_exp['id']}",
+            headers=headers,
+            json={"amount": 21},
+        )
+        assert r_keep.status_code == 200
+        assert r_keep.json()["expense"]["spent_date"] == today.isoformat()
 
 
 @pytest.mark.asyncio

@@ -470,6 +470,7 @@ class ExpenseRepo:
         category_id: Optional[int] = None,
         is_once_off: Optional[bool] = None,
         is_recurring: Optional[bool] = None,
+        spent_at: Optional[datetime] = None,
     ) -> Optional[Expense]:
         expense = await self.get_expense_by_id(household_id, expense_id)
         if expense is None:
@@ -483,6 +484,8 @@ class ExpenseRepo:
             expense.amount = amount
         if description is not None:
             expense.description = description.strip()[:255]
+        if spent_at is not None:
+            expense.spent_at = spent_at
         if is_once_off is not None:
             expense.is_once_off = is_once_off
         if is_recurring is not None:

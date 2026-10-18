@@ -155,6 +155,7 @@ class CreateExpenseRequest(BaseModel):
     is_once_off: bool = False
     is_recurring: bool = False
     member_id: Optional[int] = None
+    spent_date: Optional[str] = None
 
 
 class UpdateExpenseRequest(BaseModel):
@@ -163,6 +164,7 @@ class UpdateExpenseRequest(BaseModel):
     description: Optional[str] = None
     is_once_off: Optional[bool] = None
     is_recurring: Optional[bool] = None
+    spent_date: Optional[str] = None
 
 
 class CategoryBudgetUpdate(BaseModel):
@@ -184,6 +186,29 @@ class CreateCategoryRequest(BaseModel):
     display_name: Optional[str] = None
     is_fixed: bool = False
     monthly_budget: Optional[Decimal] = None
+
+
+def _parse_spent_date(raw: Optional[str]) -> Optional[datetime]:
+    """
+    Parse an optional 'YYYY-MM-DD' backdate into a tz-aware datetime, keeping the
+    current local time of day. Returns None when no date was supplied so callers
+    can fall back to "now".
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Invalid date. Use the YYYY-MM-DD format."
+        )
+    now_local = settings.now()
+    if parsed_date > now_local.date():
+        raise HTTPException(status_code=400, detail="Date cannot be in the future.")
+    return datetime.combine(parsed_date, now_local.timetz())
 
 
 def _serialize_expense(exp: Expense, currency: str) -> dict[str, Any]:
@@ -727,7 +752,7 @@ def create_webapp() -> FastAPI:
                 body.is_once_off or is_recurring or is_fixed_category(category)
             )
 
-        now = settings.now()
+        now = _parse_spent_date(body.spent_date) or settings.now()
         expense = await repo.add_expense(
             household_id=household.id,
             member_id=member_id,
@@ -787,6 +812,7 @@ def create_webapp() -> FastAPI:
             description=body.description,
             is_once_off=body.is_once_off,
             is_recurring=body.is_recurring,
+            spent_at=_parse_spent_date(body.spent_date),
         )
         if updated is None:
             raise HTTPException(
