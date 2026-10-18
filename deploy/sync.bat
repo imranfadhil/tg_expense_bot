@@ -83,7 +83,9 @@ tar -cf "%TEMP%\%PROJECT_NAME%.tar" ^
     --exclude=".env" ^
     --exclude="deploy" ^
     --exclude="tests" ^
+    --exclude="backups" ^
     --exclude="postgres_data" ^
+    --exclude="*.sql" ^
     --exclude="*.pyc" ^
     --exclude="*.log" ^
     *

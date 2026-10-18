@@ -12,10 +12,12 @@ ENV/
 .env
 deploy/config.bat
 
-# Database / local data
+# Database / local data & backups
 postgres_data/
+backups/
 *.db
 *.sqlite3
+*.sql
 
 # Pytest / coverage
 .pytest_cache/
