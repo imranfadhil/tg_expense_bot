@@ -165,6 +165,8 @@ async def test_webapp_api_full_flow(db_session, monkeypatch):
         assert "AUTO_REFRESH_INTERVAL_MS = 60000" in r_html.text
         assert "isUserEditing()" in r_html.text
         assert 'rel="manifest" href="/manifest.webmanifest"' in r_html.text
+        assert "openCategoryDetailModal(" in r_html.text
+        assert 'id="modal-cat-detail"' in r_html.text
 
         r_manifest = await client.get("/manifest.webmanifest")
         assert r_manifest.status_code == 200

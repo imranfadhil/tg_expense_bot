@@ -768,6 +768,25 @@
       opacity: 0.94;
     }
 
+    .btn-secondary {
+      width: 100%;
+      background: rgba(30, 41, 59, 0.75);
+      color: var(--text-primary);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 12px;
+      padding: 11px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(51, 65, 85, 0.85);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
     .btn-danger {
       width: 100%;
       background: var(--rose-bg);
@@ -1137,6 +1156,70 @@
     </div>
   </div>
 
+  <!-- MODAL: CATEGORY SUMMARY / STATS -->
+  <div id="modal-cat-detail" class="modal-backdrop" style="z-index: 95;" onclick="if(event.target===this)closeModal('modal-cat-detail')">
+    <div class="modal-sheet">
+      <div class="modal-header" style="align-items: flex-start;">
+        <div>
+          <div id="cat-detail-title" class="modal-title">📂 Category Summary</div>
+          <div id="cat-detail-badges" style="display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap;"></div>
+        </div>
+        <button class="icon-btn" onclick="closeModal('modal-cat-detail')">✖️</button>
+      </div>
+
+      <div class="card hero-card" style="margin-bottom: 14px; padding: 14px;">
+        <div class="hero-top" style="margin-bottom: 10px;">
+          <div>
+            <div class="hero-label">Category Monthly Spend</div>
+            <div id="cat-detail-total" class="hero-amount" style="font-size: 28px;">$0.00</div>
+          </div>
+          <span id="cat-detail-count" class="hero-tx-badge">0 expenses</span>
+        </div>
+
+        <div id="cat-detail-budget-section" class="budget-bar-wrap hidden">
+          <div class="budget-bar-header">
+            <span id="cat-detail-budget-text">Cap: $0</span>
+            <span id="cat-detail-budget-pct" style="font-weight: 700;">0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="cat-detail-budget-bar" class="progress-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-box">
+            <div class="kpi-title">📊 Share of Month</div>
+            <div id="cat-detail-share" class="kpi-val">0.0%</div>
+            <div id="cat-detail-share-sub" class="kpi-sub">of monthly total</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">🧾 Avg / Entry</div>
+            <div id="cat-detail-avg" class="kpi-val">$0.00</div>
+            <div id="cat-detail-avg-sub" class="kpi-sub">0 entries</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">⏱️ Vs Last Month</div>
+            <div id="cat-detail-mom" class="kpi-val">—</div>
+            <div id="cat-detail-mom-sub" class="kpi-sub">Previous month</div>
+          </div>
+          <div class="kpi-box">
+            <div class="kpi-title">🔄 Spend Split</div>
+            <div id="cat-detail-split" class="kpi-val">$0.00</div>
+            <div id="cat-detail-split-sub" class="kpi-sub">Variable vs Fixed</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-header" style="margin-bottom: 8px;">
+        <div class="section-title" style="font-size: 14px;">🧾 Entries This Month</div>
+        <button id="btn-cat-detail-add" type="button" class="icon-btn" style="padding: 5px 10px; font-size: 12px;">➕ Log Here</button>
+      </div>
+      <div id="cat-detail-tx-list" class="tx-list" style="max-height: 240px; overflow-y: auto; margin-bottom: 6px;"></div>
+
+      <button id="btn-cat-detail-edit" type="button" class="btn-secondary">⚙️ Edit Category &amp; Budget Cap</button>
+    </div>
+  </div>
+
   <!-- MODAL: EDIT CATEGORY BUDGET -->
   <div id="modal-cat-budget" class="modal-backdrop" onclick="if(event.target===this)closeModal('modal-cat-budget')">
     <div class="modal-sheet">
@@ -1497,6 +1580,9 @@
       renderBudgetsTab();
       renderRecurringTab();
       populateCategorySelects();
+      if (activeDetailCategoryId !== null && document.getElementById("modal-cat-detail").classList.contains("open")) {
+        renderCategoryDetailModal(activeDetailCategoryId);
+      }
     }
 
     function setChartMode(mode) {
@@ -1639,7 +1725,7 @@
 
       const legendEl = document.getElementById("top-cat-legend");
       const legendHtml = spentCats.slice(0, 5).map((c, idx) => `
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+        <div onclick="openCategoryDetailModal(${c.id})" style="display:flex; justify-content:space-between; align-items:center; font-size:12px; cursor:pointer; padding:2px 4px; border-radius:6px;">
           <span style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
             <span style="width:8px; height:8px; border-radius:50%; background:${CHART_COLORS[idx % CHART_COLORS.length]}; flex-shrink:0;"></span>
             ${escapeHtml(c.display_name)}
@@ -1667,7 +1753,7 @@
           budgetBadge = `<span class="badge ${bClass}">Cap ${fmtMoney(c.budget, cur)} · ${c.budget_pct.toFixed(0)}%</span>`;
         }
         return `
-          <div class="cat-item" onclick='openCategoryBudgetModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>
+          <div class="cat-item" onclick="openCategoryDetailModal(${c.id})">
             <div class="cat-row-top">
               <div class="cat-name">
                 <span>${escapeHtml(c.display_name)}</span>
@@ -1897,11 +1983,16 @@
       document.getElementById("add-quick-pane").classList.toggle("hidden", mode !== "quick");
     }
 
-    function openAddModal(defaultRecurring = false) {
+    let activeDetailCategoryId = null;
+
+    function openAddModal(defaultRecurring = false, presetCategoryId = null) {
       haptic("medium");
       document.getElementById("add-amount").value = "";
       document.getElementById("add-desc").value = "";
       document.getElementById("add-quick-text").value = "";
+      if (presetCategoryId !== null && presetCategoryId !== undefined) {
+        document.getElementById("add-category").value = String(presetCategoryId);
+      }
       document.getElementById("add-toggle-once").classList.toggle("active", defaultRecurring);
       document.getElementById("add-toggle-rec").classList.toggle("active", defaultRecurring);
       setAddMode("form");
@@ -1917,6 +2008,125 @@
       document.getElementById("edit-toggle-once").classList.toggle("active", !!tx.is_once_off);
       document.getElementById("edit-toggle-rec").classList.toggle("active", !!tx.is_recurring);
       document.getElementById("modal-edit").classList.add("open");
+    }
+
+    function openCategoryDetailModal(catId) {
+      if (!dashboardData) return;
+      haptic("light");
+      activeDetailCategoryId = catId;
+      renderCategoryDetailModal(catId);
+      document.getElementById("modal-cat-detail").classList.add("open");
+    }
+
+    function renderCategoryDetailModal(catId) {
+      if (!dashboardData) return;
+      const cat = (dashboardData.categories || []).find(c => c.id === catId);
+      if (!cat) return;
+
+      const cur = dashboardData.household.currency;
+      const report = dashboardData.report;
+      const comp = dashboardData.comparison;
+
+      document.getElementById("cat-detail-title").textContent = cat.display_name;
+      const modeBadge = cat.is_fixed
+        ? `<span class="badge badge-fixed">📌 Fixed Category (counted 1x)</span>`
+        : `<span class="badge badge-ok">🔄 Variable Category</span>`;
+      document.getElementById("cat-detail-badges").innerHTML = `
+        <code style="font-size:11px; color:var(--text-secondary); background:rgba(15,23,42,0.7); padding:2px 6px; border-radius:5px;">#${escapeHtml(cat.name)}</code>
+        ${modeBadge}
+      `;
+
+      document.getElementById("cat-detail-total").textContent = fmtMoney(cat.total, cur);
+      document.getElementById("cat-detail-count").textContent = `${cat.count} expense${cat.count === 1 ? "" : "s"}`;
+
+      // Budget progress bar
+      const bSec = document.getElementById("cat-detail-budget-section");
+      if (cat.budget && cat.budget > 0) {
+        bSec.classList.remove("hidden");
+        const pct = cat.budget_pct !== null && cat.budget_pct !== undefined ? cat.budget_pct : (cat.total / cat.budget) * 100;
+        const rem = cat.budget - cat.total;
+        const statusStr = rem >= 0 ? `${fmtMoney(rem, cur)} left` : `${fmtMoney(Math.abs(rem), cur)} over`;
+        document.getElementById("cat-detail-budget-text").textContent = `Cap: ${fmtMoney(cat.budget, cur)} (${statusStr})`;
+        document.getElementById("cat-detail-budget-pct").textContent = `${pct.toFixed(1)}%`;
+        const bar = document.getElementById("cat-detail-budget-bar");
+        bar.style.width = `${Math.min(100, pct)}%`;
+        bar.className = "progress-fill" + (pct >= 100 ? " danger" : (pct >= 80 ? " warn" : ""));
+      } else {
+        bSec.classList.add("hidden");
+      }
+
+      // KPI 1: Share of Month
+      document.getElementById("cat-detail-share").textContent = `${(cat.share_pct || 0).toFixed(1)}%`;
+      document.getElementById("cat-detail-share-sub").textContent = `of ${fmtMoney(report.total_spent, cur)} total`;
+
+      // KPI 2: Avg / Entry
+      const avgAmt = cat.count > 0 ? cat.total / cat.count : 0;
+      document.getElementById("cat-detail-avg").textContent = fmtMoney(avgAmt, cur);
+      document.getElementById("cat-detail-avg-sub").textContent =
+        cat.count > 0 ? `Across ${cat.count} entr${cat.count === 1 ? "y" : "ies"}` : "No entries yet";
+
+      // KPI 3: Vs Last Month
+      const delta = ((comp && comp.category_deltas) || []).find(d => d.category_name === cat.name);
+      if (delta) {
+        const dSign = delta.diff_amount > 0 ? "+" : "";
+        const dPct = delta.diff_pct !== null && delta.diff_pct !== undefined ? ` (${dSign}${delta.diff_pct}%)` : "";
+        document.getElementById("cat-detail-mom").textContent = `${dSign}${fmtMoney(delta.diff_amount, cur)}`;
+        document.getElementById("cat-detail-mom-sub").textContent = `${comp.prev_label}: ${fmtMoney(delta.prev_total, cur)}${dPct}`;
+      } else {
+        document.getElementById("cat-detail-mom").textContent = fmtMoney(0, cur);
+        document.getElementById("cat-detail-mom-sub").textContent = `${comp ? comp.prev_label : "Prev"}: ${fmtMoney(0, cur)}`;
+      }
+
+      // KPI 4: Spend Split (Variable vs Fixed/Once-off)
+      const fixedPart = cat.fixed_total || 0;
+      const varPart = Math.max(0, (cat.total || 0) - fixedPart);
+      if (cat.is_fixed || (fixedPart > 0 && varPart === 0)) {
+        document.getElementById("cat-detail-split").textContent = fmtMoney(fixedPart || cat.total, cur);
+        document.getElementById("cat-detail-split-sub").textContent = "100% Fixed / Once-Off";
+      } else if (fixedPart > 0) {
+        document.getElementById("cat-detail-split").textContent = `${fmtMoney(varPart, cur)} var`;
+        document.getElementById("cat-detail-split-sub").textContent = `+ ${fmtMoney(fixedPart, cur)} once-off`;
+      } else {
+        document.getElementById("cat-detail-split").textContent = fmtMoney(varPart, cur);
+        document.getElementById("cat-detail-split-sub").textContent = "100% Variable burn";
+      }
+
+      // Category Transactions List
+      const catTxs = (dashboardData.expenses || []).filter(tx => tx.category_id === cat.id);
+      const txListEl = document.getElementById("cat-detail-tx-list");
+      if (catTxs.length === 0) {
+        setHtmlIfChanged(txListEl, `<div class="empty-state" style="padding: 16px 10px;">No expenses logged in ${escapeHtml(cat.display_name)} this month.</div>`);
+      } else {
+        setHtmlIfChanged(txListEl, catTxs.map(tx => {
+          const recBadge = tx.is_recurring ? `<span class="badge badge-recurring">🔁 Recurring</span>` : "";
+          const onceBadge = (!tx.is_recurring && tx.effective_once_off)
+            ? `<span class="badge badge-fixed">📌 Once-Off</span>`
+            : "";
+          return `
+            <div class="tx-item" onclick='openEditModal(${JSON.stringify(tx).replace(/'/g, "&#39;")})'>
+              <div class="tx-left">
+                <div class="tx-cat">
+                  <span>${escapeHtml(tx.description || cat.display_name)}</span>
+                  ${recBadge}${onceBadge}
+                </div>
+                <div class="tx-meta">${escapeHtml(tx.spent_label)} · 👤 ${escapeHtml(tx.member_name)}</div>
+              </div>
+              <div class="tx-right">
+                <div class="tx-amount">${fmtMoney(tx.amount, cur)}</div>
+                <div style="font-size:11px; color:var(--accent);">Edit ✏️</div>
+              </div>
+            </div>
+          `;
+        }).join(""));
+      }
+
+      // Wire action buttons
+      document.getElementById("btn-cat-detail-add").onclick = () => {
+        openAddModal(cat.is_fixed, cat.id);
+      };
+      document.getElementById("btn-cat-detail-edit").onclick = () => {
+        openCategoryBudgetModal(cat);
+      };
     }
 
     function openCategoryBudgetModal(cat) {
